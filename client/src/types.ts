@@ -6,6 +6,8 @@ export interface BoneNode {
   parentId: string | null;
   /** Position in bind-pose model space (not parent-relative), Y-up, Z toward camera. */
   position: [number, number, number];
+  /** Source-image pixel coordinates this bone was extracted from (Mode B layer segmentation). */
+  pixelPosition?: [number, number];
   jointType: JointType;
   /** Local axis (unit vector, bind-pose model space) the hinge rotates around. */
   hingeAxis?: [number, number, number];

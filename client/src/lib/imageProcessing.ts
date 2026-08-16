@@ -130,7 +130,7 @@ function cleanupMask(mask: Uint8Array, width: number, height: number): Uint8Arra
   return erode(dilate(out, width, height, 4), width, height, 4);
 }
 
-function dilate(mask: Uint8Array, width: number, height: number, radius: number): Uint8Array {
+export function dilate(mask: Uint8Array, width: number, height: number, radius: number): Uint8Array {
   return morph(mask, width, height, radius, /* anyMode */ true);
 }
 

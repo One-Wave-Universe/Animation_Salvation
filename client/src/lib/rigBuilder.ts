@@ -91,11 +91,13 @@ export function buildRig(
     else if (children.length >= 2) jointType = 'ball';
     else jointType = 'hinge';
 
+    const node = nodeById.get(id)!;
     const bone: BoneNode = {
       id: `b${id}`,
       name: names.get(id) ?? `Bone${id}`,
       parentId: parentId === null ? null : `b${parentId}`,
       position: pos,
+      pixelPosition: [node.px, node.py],
       jointType,
     };
 

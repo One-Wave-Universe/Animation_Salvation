@@ -10,11 +10,37 @@ export interface MeshBuildResult {
 }
 
 const GRID_RES = 96;
-const FRONT_DEPTH_SCALE = 0.35;
+export const FRONT_DEPTH_SCALE = 0.35;
 const BACK_DEPTH_SCALE = 0.22;
 const BASE_THICKNESS = 0.05;
 /** Target height (model units) the image's tallest mask dimension maps to. */
 const TARGET_HEIGHT = 2;
+
+export interface ImageToModelTransform {
+  toModelXY(px: number, py: number): [number, number];
+  depthAt(px: number, py: number): number;
+  scale: number;
+}
+
+/**
+ * The single source of truth for image-pixel -> model-space mapping. Both the main
+ * relief mesh (this file) and the Mode B per-bone layer planes (layerBuilder.ts) must
+ * agree on this transform, or layers and mesh/rig would drift apart in the scene.
+ */
+export function computeImageToModelTransform(mask: Uint8Array, depth: Float32Array, width: number, height: number): ImageToModelTransform {
+  const bbox = maskBoundingBox(mask, width, height);
+  if (!bbox) throw new Error('No foreground pixels found in the uploaded image.');
+  const { minX, minY, maxX, maxY } = bbox;
+  const bboxW = maxX - minX + 1;
+  const bboxH = maxY - minY + 1;
+  const scale = TARGET_HEIGHT / Math.max(bboxW, bboxH);
+
+  return {
+    scale,
+    toModelXY: (px, py) => [(px - (minX + bboxW / 2)) * scale, -(py - (minY + bboxH / 2)) * scale],
+    depthAt: (px, py) => bilinearSample(depth, width, height, px, py),
+  };
+}
 
 export function buildCharacterMesh(
   mask: Uint8Array,
@@ -28,7 +54,7 @@ export function buildCharacterMesh(
   const bboxW = maxX - minX + 1;
   const bboxH = maxY - minY + 1;
 
-  const scale = TARGET_HEIGHT / Math.max(bboxW, bboxH);
+  const transform = computeImageToModelTransform(mask, depth, imgWidth, imgHeight);
   const gridW = Math.max(8, Math.round((bboxW / Math.max(bboxW, bboxH)) * GRID_RES));
   const gridH = Math.max(8, Math.round((bboxH / Math.max(bboxW, bboxH)) * GRID_RES));
 
@@ -44,15 +70,6 @@ export function buildCharacterMesh(
       insideGrid[gy * gridW + gx] = isInside(pxAt(gx), pyAt(gy)) ? 1 : 0;
     }
   }
-
-  const toModelXY = (px: number, py: number): [number, number] => {
-    // Center on bbox, flip Y so image-down becomes model-down-negative (Y-up).
-    const x = (px - (minX + bboxW / 2)) * scale;
-    const y = -(py - (minY + bboxH / 2)) * scale;
-    return [x, y];
-  };
-
-  const depthAt = (px: number, py: number) => bilinearSample(depth, imgWidth, imgHeight, px, py);
 
   const positions: number[] = [];
   const uvs: number[] = [];
@@ -71,8 +88,8 @@ export function buildCharacterMesh(
       if (!insideGrid[gy * gridW + gx]) continue;
       const px = pxAt(gx);
       const py = pyAt(gy);
-      const [x, y] = toModelXY(px, py);
-      const d = depthAt(px, py);
+      const [x, y] = transform.toModelXY(px, py);
+      const d = transform.depthAt(px, py);
       const u = px / (imgWidth - 1);
       const v = 1 - py / (imgHeight - 1);
 
@@ -151,15 +168,15 @@ export function buildCharacterMesh(
 
   const sampleFront = (px: number, py: number) => {
     if (!isInside(Math.round(px), Math.round(py))) return null;
-    const [x, y] = toModelXY(px, py);
-    const z = depthAt(px, py) * FRONT_DEPTH_SCALE;
+    const [x, y] = transform.toModelXY(px, py);
+    const z = transform.depthAt(px, py) * FRONT_DEPTH_SCALE;
     return { x, y, z };
   };
 
-  return { geometry, modelWidth: bboxW * scale, modelHeight: bboxH * scale, sampleFront };
+  return { geometry, modelWidth: bboxW * transform.scale, modelHeight: bboxH * transform.scale, sampleFront };
 }
 
-function maskBoundingBox(mask: Uint8Array, width: number, height: number) {
+export function maskBoundingBox(mask: Uint8Array, width: number, height: number) {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;

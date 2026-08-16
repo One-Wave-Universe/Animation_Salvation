@@ -4,10 +4,15 @@ import cors from 'cors';
 import { z } from 'zod';
 import { directSceneAnthropic } from './anthropicClient.js';
 import { directSceneOpenAI } from './openaiClient.js';
+import { inpaintLayer } from './inpaintClient.js';
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '1mb' }));
+// Generous limit: base64-encoded layer-texture crops sent to /api/inpaint-layer can
+// run several MB. A second express.json() with a bigger per-route limit would not
+// help here — the global middleware already reads (and would reject) the stream
+// first — so this single global limit has to cover every route.
+app.use(express.json({ limit: '15mb' }));
 
 const PROVIDERS = ['anthropic', 'openai'] as const;
 type Provider = (typeof PROVIDERS)[number];
@@ -50,6 +55,28 @@ app.post('/api/direct-scene', async (req, res) => {
         ? await directSceneOpenAI(parsed.data.instruction, parsed.data.bones)
         : await directSceneAnthropic(parsed.data.instruction, parsed.data.bones);
     res.json({ timeline, provider });
+  } catch (err) {
+    const statusCode = (err as { statusCode?: number }).statusCode ?? 500;
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    res.status(statusCode).json({ error: message });
+  }
+});
+
+const InpaintRequestSchema = z.object({
+  imageBase64: z.string().min(1),
+  maskBase64: z.string().min(1),
+  prompt: z.string().max(2000).optional(),
+});
+
+app.post('/api/inpaint-layer', async (req, res) => {
+  const parsed = InpaintRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: `Invalid request: ${parsed.error.message}` });
+    return;
+  }
+  try {
+    const imageBase64 = await inpaintLayer(parsed.data.imageBase64, parsed.data.maskBase64, parsed.data.prompt);
+    res.json({ imageBase64 });
   } catch (err) {
     const statusCode = (err as { statusCode?: number }).statusCode ?? 500;
     const message = err instanceof Error ? err.message : 'Unknown error';

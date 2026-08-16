@@ -21,6 +21,11 @@ export function recordVideo(seconds: number, onProgress?: (fraction: number) => 
       return;
     }
     const stream = canvas.captureStream(30);
+    // video/mp4 reports as MediaRecorder.isTypeSupported()===true in Chromium but
+    // produces a genuinely corrupt file for a canvas-sourced stream (verified: valid
+    // ftyp/moov header, but ffmpeg rejects it as "Invalid data" — a real browser bug,
+    // not a codec-support gap). WebM is what actually works; don't "fix" this by
+    // trusting the feature-detect over a real decode test again without re-verifying.
     const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm';
     const recorder = new MediaRecorder(stream, { mimeType });
     const chunks: BlobPart[] = [];

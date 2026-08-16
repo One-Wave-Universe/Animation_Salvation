@@ -196,6 +196,34 @@ main {
   color: #6fa8f5;
 }
 
+.provider-toggle {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.provider-btn {
+  flex: 1;
+  background: #1c1f26;
+  color: #9199a3;
+  border: 1px solid #2a2e37;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.provider-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.provider-btn-active {
+  background: rgba(47, 111, 237, 0.18);
+  border-color: rgba(47, 111, 237, 0.5);
+  color: #7ea6f5;
+}
+
 .director-input {
   width: 100%;
   background: #0f1114;

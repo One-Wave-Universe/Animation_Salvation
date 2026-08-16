@@ -9,6 +9,18 @@ export interface BoneHierarchy {
 }
 
 /**
+ * Minimal shape the action library and timeline executor actually need. Both render
+ * modes' runtimes (RigRuntime's skinned mesh, LayeredRigRuntime's per-bone planes)
+ * satisfy this, so actions.ts/timelineExecutor.ts work unchanged against either —
+ * they animate bones, not whatever happens to be attached to them.
+ */
+export interface AnimatableRig {
+  rootBone: THREE.Bone;
+  boneById: Map<string, THREE.Bone>;
+  rig: RigDescription;
+}
+
+/**
  * Builds the THREE.Bone tree from a RigDescription's bind-pose absolute positions.
  * Shared by both render modes — a skinned mesh (Mode A) and a plane-per-layer rig
  * (Mode B) both need the exact same bone tree; only what gets attached differs.

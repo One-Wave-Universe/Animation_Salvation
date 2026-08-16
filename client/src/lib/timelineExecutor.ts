@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { SceneTimeline } from '../types';
-import type { RigRuntime } from './skinning';
+import type { AnimatableRig } from './boneHierarchy';
 import { ACTIONS, makeActionContext, type ActionContext } from './actions';
 
 export class TimelineExecutor {
@@ -10,7 +10,7 @@ export class TimelineExecutor {
   timeline: SceneTimeline | null = null;
   playing = true;
 
-  constructor(runtime: RigRuntime) {
+  constructor(runtime: AnimatableRig) {
     this.ctx = makeActionContext(runtime);
   }
 
@@ -31,7 +31,7 @@ export class TimelineExecutor {
     // Reset transient per-frame pose state; idle always runs as the base layer.
     this.ctx.runtime.rootBone.position.set(0, 0, 0);
     this.ctx.runtime.rootBone.rotation.set(0, 0, 0);
-    this.ctx.runtime.skinnedMesh.scale.set(1, 1, 1);
+    this.ctx.runtime.rootBone.scale.set(1, 1, 1);
 
     ACTIONS.idle(this.ctx, 1, this.clock, {}, this.stateFor('__idle'));
 

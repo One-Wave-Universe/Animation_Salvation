@@ -1,14 +1,14 @@
 import * as THREE from 'three';
-import type { RigRuntime } from './skinning';
+import type { AnimatableRig } from './boneHierarchy';
 import type { BoneNode } from '../types';
 import { poseBone } from './jointConstraints';
 
 export interface ActionContext {
-  runtime: RigRuntime;
+  runtime: AnimatableRig;
   findByPrefix: (prefix: string) => THREE.Bone[];
 }
 
-export function makeActionContext(runtime: RigRuntime): ActionContext {
+export function makeActionContext(runtime: AnimatableRig): ActionContext {
   const findByPrefix = (prefix: string) =>
     runtime.rig.bones
       .filter((b) => b.name.startsWith(prefix))
@@ -22,7 +22,7 @@ export type ActionFn = (ctx: ActionContext, t: number, elapsed: number, params: 
 const q = new THREE.Quaternion();
 const euler = new THREE.Euler();
 
-function boneDesc(runtime: RigRuntime, bone: THREE.Bone): BoneNode {
+function boneDesc(runtime: AnimatableRig, bone: THREE.Bone): BoneNode {
   return runtime.rig.bones.find((b) => b.id === bone.userData.rigId)!;
 }
 
@@ -72,7 +72,7 @@ const jump: ActionFn = (ctx, t, _elapsed, params) => {
   const arc = Math.sin(Math.PI * THREE.MathUtils.clamp(t, 0, 1));
   ctx.runtime.rootBone.position.y = arc * height;
   const squash = 1 - 0.15 * Math.max(0, Math.sin(Math.PI * 2 * t)) * (t < 0.1 || t > 0.9 ? 1 : 0);
-  ctx.runtime.skinnedMesh.scale.set(2 - squash, squash, 2 - squash);
+  ctx.runtime.rootBone.scale.set(2 - squash, squash, 2 - squash);
 };
 
 const sit: ActionFn = (ctx, t) => {

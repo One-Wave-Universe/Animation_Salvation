@@ -11,10 +11,22 @@ export interface InpaintProgress {
   boneId: string;
 }
 
+export interface InpaintResult {
+  layers: CharacterLayer[];
+  succeeded: number;
+  failed: number;
+  lastError: string | null;
+}
+
 /**
  * Calls /api/inpaint-layer once per occlusion region and returns an updated layer
  * list with the affected layers replaced by wider canvases that include the filled
  * content. Layers with no occlusion region are passed through unchanged.
+ *
+ * An individual region failing doesn't abort the batch (a transient failure on one
+ * limb shouldn't sink the other eight), but the succeeded/failed counts are still
+ * returned so the caller can tell a real problem (e.g. every region failing because
+ * the API key is missing) apart from a few isolated misses.
  */
 export async function applyInpainting(
   layers: CharacterLayer[],
@@ -27,8 +39,8 @@ export async function applyInpainting(
   imgHeight: number,
   sourceCanvas: HTMLCanvasElement,
   onProgress?: (p: InpaintProgress) => void,
-): Promise<CharacterLayer[]> {
-  if (regions.length === 0) return layers;
+): Promise<InpaintResult> {
+  if (regions.length === 0) return { layers, succeeded: 0, failed: 0, lastError: null };
 
   const boneById = new Map(rig.bones.map((b) => [b.id, b]));
   const transform = computeImageToModelTransform(mask, depth, imgWidth, imgHeight);
@@ -36,6 +48,9 @@ export async function applyInpainting(
   const { layerIndex, indexByBoneId } = assignment;
 
   let done = 0;
+  let succeeded = 0;
+  let failed = 0;
+  let lastError: string | null = null;
   for (const region of regions) {
     onProgress?.({ done, total: regions.length, boneId: region.targetBoneId });
 
@@ -83,6 +98,8 @@ export async function applyInpainting(
       // One region failing shouldn't sink the whole pass — that layer just keeps its
       // original (possibly gappy) texture, same as if inpainting were never run.
       console.warn(`Inpainting failed for ${region.targetBoneId}:`, err);
+      lastError = err instanceof Error ? err.message : String(err);
+      failed++;
       done++;
       continue;
     }
@@ -118,11 +135,12 @@ export async function applyInpainting(
       pixelBBox: region.extendedBBox,
     });
 
+    succeeded++;
     done++;
     onProgress?.({ done, total: regions.length, boneId: region.targetBoneId });
   }
 
-  return layers.map((l) => layerByBoneId.get(l.boneId) ?? l);
+  return { layers: layers.map((l) => layerByBoneId.get(l.boneId) ?? l), succeeded, failed, lastError };
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {

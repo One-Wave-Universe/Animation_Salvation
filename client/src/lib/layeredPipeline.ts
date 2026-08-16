@@ -73,7 +73,7 @@ export function getPendingRegionsCount(): number {
 
 export async function runInpaintingPass(onProgress?: (p: InpaintProgress) => void): Promise<void> {
   if (!recipe) throw new Error('Upload a character first.');
-  const updatedLayers = await applyInpainting(
+  const result = await applyInpainting(
     recipe.layers,
     recipe.regions,
     recipe.assignment,
@@ -85,9 +85,15 @@ export async function runInpaintingPass(onProgress?: (p: InpaintProgress) => voi
     recipe.sourceCanvas,
     onProgress,
   );
-  recipe.layers = updatedLayers;
-  recipe.regions = []; // filled regions don't need re-filling on a second click
-  mountLayeredRig(updatedLayers);
+  recipe.layers = result.layers;
+  // Only clear the queue for regions that actually got filled — an all-failed pass
+  // (e.g. missing API key) should leave regions in place so retrying is meaningful.
+  if (result.succeeded > 0) recipe.regions = [];
+  mountLayeredRig(result.layers);
+
+  if (result.succeeded === 0 && result.failed > 0) {
+    throw new Error(result.lastError ?? 'Inpainting failed for every region.');
+  }
 }
 
 function mountLayeredRig(layers: CharacterLayer[]) {

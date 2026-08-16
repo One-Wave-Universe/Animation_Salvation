@@ -281,3 +281,71 @@ main {
   resize: vertical;
   margin-bottom: 10px;
 }
+
+.text-input {
+  flex: 1;
+  min-width: 0;
+  background: #0f1114;
+  border: 1px solid #2a2e37;
+  border-radius: 7px;
+  color: #e6e8eb;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.text-input:disabled {
+  opacity: 0.5;
+}
+
+.saved-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.saved-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #0f1114;
+  border: 1px solid #23262d;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.saved-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: 5px;
+  background: #1a1d23;
+  flex-shrink: 0;
+}
+
+.saved-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.saved-name {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved-sub {
+  font-size: 11.5px;
+  color: #9199a3;
+}
+
+.saved-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}

@@ -4,6 +4,7 @@ import { InpaintPanel } from './components/InpaintPanel';
 import { QuickActionsPanel } from './components/QuickActionsPanel';
 import { DirectorPanel } from './components/DirectorPanel';
 import { ExportPanel } from './components/ExportPanel';
+import { SavedCharactersPanel } from './components/SavedCharactersPanel';
 import { Viewport } from './components/Viewport';
 import './App.css';
 
@@ -17,6 +18,7 @@ function App() {
       <div className="app-body">
         <aside className="sidebar">
           <UploadPanel />
+          <SavedCharactersPanel />
           <RigEditor />
           <InpaintPanel />
           <QuickActionsPanel />

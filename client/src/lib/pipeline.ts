@@ -17,6 +17,23 @@ export interface PipelineCallbacks {
   onStage: (stage: string, label?: string) => void;
 }
 
+export interface CurrentCharacterData {
+  sourceCanvas: HTMLCanvasElement;
+  mask: Uint8Array;
+  depth: Float32Array;
+  width: number;
+  height: number;
+  rig: RigDescription;
+}
+
+let current: CurrentCharacterData | null = null;
+
+/** For the "save this character" action — whatever's currently loaded, regardless
+ *  of whether it came from a fresh upload or was itself loaded from a save. */
+export function getCurrentCharacterData(): CurrentCharacterData | null {
+  return current;
+}
+
 export async function runPipeline(file: File, callbacks: PipelineCallbacks): Promise<PipelineResult> {
   callbacks.onStage('loading-image', 'Reading image…');
   const img = await loadImageFile(file);
@@ -28,14 +45,45 @@ export async function runPipeline(file: File, callbacks: PipelineCallbacks): Pro
     ? mockDepth(mask, img.width, img.height)
     : await estimateDepth(dataUrl, img.width, img.height, (label) => callbacks.onStage('estimating-depth', label));
 
-  callbacks.onStage('building-mesh', 'Building 3D mesh…');
-  const meshResult = buildCharacterMesh(mask, depth, img.width, img.height);
+  return assembleCharacter(img.canvas, mask, depth, img.width, img.height, undefined, callbacks);
+}
 
-  callbacks.onStage('building-rig', 'Extracting skeleton…');
-  const graph = skeletonize(mask, img.width, img.height);
-  const rig = buildRig(graph, meshResult, mask, img.width, img.height);
+/**
+ * Rebuilds a character from previously-saved mask/depth/rig — skips the two
+ * expensive/paid-adjacent steps (depth model inference, and re-deriving a rig that
+ * may carry the user's own joint-type edits) entirely.
+ */
+export async function loadPipelineFromSaved(
+  sourceCanvas: HTMLCanvasElement,
+  mask: Uint8Array,
+  depth: Float32Array,
+  width: number,
+  height: number,
+  savedRig: RigDescription,
+): Promise<PipelineResult> {
+  return assembleCharacter(sourceCanvas, mask, depth, width, height, savedRig);
+}
 
-  const texture = new THREE.CanvasTexture(img.canvas);
+async function assembleCharacter(
+  sourceCanvas: HTMLCanvasElement,
+  mask: Uint8Array,
+  depth: Float32Array,
+  width: number,
+  height: number,
+  savedRig: RigDescription | undefined,
+  callbacks?: PipelineCallbacks,
+): Promise<PipelineResult> {
+  callbacks?.onStage('building-mesh', 'Building 3D mesh…');
+  const meshResult = buildCharacterMesh(mask, depth, width, height);
+
+  let rig = savedRig;
+  if (!rig) {
+    callbacks?.onStage('building-rig', 'Extracting skeleton…');
+    const graph = skeletonize(mask, width, height);
+    rig = buildRig(graph, meshResult, mask, width, height);
+  }
+
+  const texture = new THREE.CanvasTexture(sourceCanvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.needsUpdate = true;
   const material = new THREE.MeshStandardMaterial({
@@ -54,6 +102,8 @@ export async function runPipeline(file: File, callbacks: PipelineCallbacks): Pro
     texture.dispose();
   });
 
-  const imageUrl = img.canvas.toDataURL('image/png');
+  current = { sourceCanvas, mask, depth, width, height, rig };
+
+  const imageUrl = sourceCanvas.toDataURL('image/png');
   return { imageUrl, rig };
 }

@@ -31,9 +31,29 @@ interface LayeredRecipe {
   assignment: PixelAssignment;
   regions: OcclusionRegion[];
   layers: CharacterLayer[];
+  inpaintDone: boolean;
 }
 
 let recipe: LayeredRecipe | null = null;
+
+export interface CurrentLayeredData {
+  rig: RigDescription;
+  mask: Uint8Array;
+  depth: Float32Array;
+  imgWidth: number;
+  imgHeight: number;
+  sourceCanvas: HTMLCanvasElement;
+  layers: CharacterLayer[];
+  inpaintDone: boolean;
+}
+
+/** For the "save this character" action — whatever's currently loaded, regardless
+ *  of whether it came from a fresh upload or was itself loaded from a save. */
+export function getCurrentLayeredData(): CurrentLayeredData | null {
+  if (!recipe) return null;
+  const { rig, mask, depth, imgWidth, imgHeight, sourceCanvas, layers, inpaintDone } = recipe;
+  return { rig, mask, depth, imgWidth, imgHeight, sourceCanvas, layers, inpaintDone };
+}
 
 export async function runLayeredPipeline(file: File, callbacks: LayeredPipelineCallbacks): Promise<LayeredPipelineResult> {
   callbacks.onStage('loading-image', 'Reading image…');
@@ -54,16 +74,57 @@ export async function runLayeredPipeline(file: File, callbacks: LayeredPipelineC
   const rig = buildRig(graph, meshResult, mask, img.width, img.height);
   meshResult.geometry.dispose();
 
-  callbacks.onStage('building-rig', 'Splitting into layers…');
-  const assignment = assignPixelsToBones(mask, rig, img.width, img.height);
-  const layers = buildLayers(mask, depth, img.width, img.height, rig, img.canvas, assignment);
-  const regions = computeOcclusionRegions(rig, assignment);
+  return assembleLayered(img.canvas, mask, depth, img.width, img.height, rig, null, callbacks);
+}
 
-  recipe = { rig, mask, depth, imgWidth: img.width, imgHeight: img.height, sourceCanvas: img.canvas, assignment, regions, layers };
+/**
+ * Rebuilds a layered character from previously-saved data. If inpainting was
+ * already run, the saved layers (which include the AI-filled pixels — not
+ * something derivable from mask/depth/rig alone) are reused as-is instead of
+ * being rebuilt, so a paid inpainting pass is never silently lost on reload.
+ */
+export async function loadLayeredPipelineFromSaved(
+  sourceCanvas: HTMLCanvasElement,
+  mask: Uint8Array,
+  depth: Float32Array,
+  width: number,
+  height: number,
+  rig: RigDescription,
+  savedLayers: CharacterLayer[] | null,
+): Promise<LayeredPipelineResult> {
+  return assembleLayered(sourceCanvas, mask, depth, width, height, rig, savedLayers);
+}
 
+async function assembleLayered(
+  sourceCanvas: HTMLCanvasElement,
+  mask: Uint8Array,
+  depth: Float32Array,
+  width: number,
+  height: number,
+  rig: RigDescription,
+  savedLayers: CharacterLayer[] | null,
+  callbacks?: LayeredPipelineCallbacks,
+): Promise<LayeredPipelineResult> {
+  callbacks?.onStage('building-rig', 'Splitting into layers…');
+  const assignment = assignPixelsToBones(mask, rig, width, height);
+  const layers = savedLayers ?? buildLayers(mask, depth, width, height, rig, sourceCanvas, assignment);
+  const regions = savedLayers ? [] : computeOcclusionRegions(rig, assignment);
+
+  recipe = {
+    rig,
+    mask,
+    depth,
+    imgWidth: width,
+    imgHeight: height,
+    sourceCanvas,
+    assignment,
+    regions,
+    layers,
+    inpaintDone: savedLayers !== null,
+  };
   mountLayeredRig(layers);
 
-  const imageUrl = img.canvas.toDataURL('image/png');
+  const imageUrl = sourceCanvas.toDataURL('image/png');
   return { imageUrl, rig, regionsCount: regions.length };
 }
 
@@ -88,7 +149,10 @@ export async function runInpaintingPass(onProgress?: (p: InpaintProgress) => voi
   recipe.layers = result.layers;
   // Only clear the queue for regions that actually got filled — an all-failed pass
   // (e.g. missing API key) should leave regions in place so retrying is meaningful.
-  if (result.succeeded > 0) recipe.regions = [];
+  if (result.succeeded > 0) {
+    recipe.regions = [];
+    recipe.inpaintDone = true;
+  }
   mountLayeredRig(result.layers);
 
   if (result.succeeded === 0 && result.failed > 0) {

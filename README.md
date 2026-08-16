@@ -57,6 +57,11 @@ director — only what's attached to the bones differs.
    of whatever's currently playing — recording length automatically matches the
    active action sequence's duration. Made for stitching clips together in an
    external video editor afterward.
+7. **Save & reuse** — once a character is rigged, "Save this character" persists it
+   to the browser's IndexedDB: source image, mask, depth map, rig (including any
+   joint relabeling you did), and — for Mode B — the layer textures, inpainted fills
+   included. Reloading it later skips depth estimation and rig extraction entirely,
+   and never re-runs (re-pays for) inpainting; it's reused as-is from the save.
 
 ## Running it
 

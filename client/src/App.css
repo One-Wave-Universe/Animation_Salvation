@@ -111,6 +111,12 @@ main {
   flex-wrap: wrap;
 }
 
+.quick-actions-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
 .progress {
   display: flex;
   align-items: center;

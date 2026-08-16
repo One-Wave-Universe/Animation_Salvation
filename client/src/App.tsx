@@ -1,6 +1,7 @@
 import { UploadPanel } from './components/UploadPanel';
 import { RigEditor } from './components/RigEditor';
 import { InpaintPanel } from './components/InpaintPanel';
+import { QuickActionsPanel } from './components/QuickActionsPanel';
 import { DirectorPanel } from './components/DirectorPanel';
 import { ExportPanel } from './components/ExportPanel';
 import { Viewport } from './components/Viewport';
@@ -18,6 +19,7 @@ function App() {
           <UploadPanel />
           <RigEditor />
           <InpaintPanel />
+          <QuickActionsPanel />
           <DirectorPanel />
           <ExportPanel />
         </aside>

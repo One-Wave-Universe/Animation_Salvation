@@ -43,12 +43,20 @@ director — only what's attached to the bones differs.
    photo. Each such gap is sent once to `/api/inpaint-layer` (OpenAI's image-edit
    API) to be filled in, so moving the child later doesn't reveal a transparent hole.
    This costs a real API call per gap and only needs to run once per character.
-5. **Direct** — free text goes to a small backend endpoint that calls Claude or
-   ChatGPT (your choice, whichever key you've configured) with the rig's actual bone
-   names and a fixed action-primitive schema, returns a validated JSON timeline, and
-   the client plays it back procedurally against the rig's joint constraints.
-6. **Export** — GLB (current pose, mesh or layers + skeleton) or a recorded WebM of
-   the viewport.
+5. **Move it** — two ways, no API key required for either to just get the character
+   moving:
+   - **Quick actions**: one-click built-in motions (wave, walk forward, turn around,
+     jump, sit, a short combo) — hand-written timelines, run entirely client-side.
+   - **Direct the scene**: free text goes to a small backend endpoint that calls
+     Claude or ChatGPT (your choice, whichever key you've configured) with the rig's
+     actual bone names and a fixed action-primitive schema, and returns a validated
+     JSON timeline for more specific/custom sequences.
+   Both produce the same kind of timeline, played back procedurally against the
+   rig's joint constraints.
+6. **Export** — GLB (current pose, mesh or layers + skeleton), or record a WebM clip
+   of whatever's currently playing — recording length automatically matches the
+   active action sequence's duration. Made for stitching clips together in an
+   external video editor afterward.
 
 ## Running it
 

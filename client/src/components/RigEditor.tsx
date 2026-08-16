@@ -17,7 +17,7 @@ export function RigEditor() {
 
   return (
     <div className="panel">
-      <h2>2. Rig</h2>
+      <h2>Rig</h2>
       <p className="hint">
         {rig.bones.length} bones auto-detected — {ballCount} ball, {hingeCount} hinge. Auto-classification is a best guess; click a
         badge to relabel a joint if it's wrong.

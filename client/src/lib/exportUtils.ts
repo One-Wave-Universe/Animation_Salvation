@@ -2,12 +2,12 @@ import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { sceneRuntime } from './sceneRuntime';
 
 export async function exportGLB(): Promise<void> {
-  const mesh = sceneRuntime.runtime?.skinnedMesh;
-  if (!mesh) throw new Error('No character to export yet.');
+  const obj = sceneRuntime.renderObject;
+  if (!obj) throw new Error('No character to export yet.');
 
   const exporter = new GLTFExporter();
   const glb = await new Promise<ArrayBuffer>((resolve, reject) => {
-    exporter.parse(mesh, (result) => resolve(result as ArrayBuffer), reject, { binary: true });
+    exporter.parse(obj, (result) => resolve(result as ArrayBuffer), reject, { binary: true });
   });
 
   downloadBlob(new Blob([glb], { type: 'model/gltf-binary' }), 'character.glb');

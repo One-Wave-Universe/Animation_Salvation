@@ -21,11 +21,11 @@ function CharacterMesh() {
 
   useEffect(() => {
     const group = groupRef.current;
-    const mesh = sceneRuntime.runtime?.skinnedMesh;
-    if (!group || !mesh) return;
-    group.add(mesh);
+    const obj = sceneRuntime.renderObject;
+    if (!group || !obj) return;
+    group.add(obj);
     return () => {
-      group.remove(mesh);
+      group.remove(obj);
     };
   }, []);
 

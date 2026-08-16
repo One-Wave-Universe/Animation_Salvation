@@ -72,7 +72,7 @@ export function DirectorPanel() {
 
   return (
     <div className="panel">
-      <h2>3. Direct the scene</h2>
+      <h2>Direct the scene</h2>
       <p className="hint">Describe what happens — e.g. "wave hello, then walk forward and turn to face the left".</p>
 
       <div className="provider-toggle">

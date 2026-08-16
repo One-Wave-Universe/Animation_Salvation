@@ -37,7 +37,7 @@ export function ExportPanel() {
 
   return (
     <div className="panel">
-      <h2>4. Export</h2>
+      <h2>Export</h2>
       <div className="row">
         <button className="btn" disabled={!!busy} onClick={doExportGlb}>
           {busy === 'glb' ? 'Exporting…' : 'Export GLB'}

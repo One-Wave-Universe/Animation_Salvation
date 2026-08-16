@@ -1,3 +1,5 @@
+import { open } from './imageProcessing';
+
 /**
  * Turns a binary silhouette mask into a topological bone graph:
  *  1. Zhang-Suen thinning -> 1px skeleton
@@ -28,15 +30,27 @@ export interface SkeletonGraph {
 }
 
 export function skeletonize(mask: Uint8Array, width: number, height: number): SkeletonGraph {
-  const thin = zhangSuenThin(mask, width, height);
+  // Painted/photographic character art has fur wisps, frayed cloth edges, and other
+  // fine silhouette texture that a clean vector shape doesn't — each one thins into
+  // its own spurious branch. Smooth those out of the silhouette *before* thinning
+  // (an opening: erode then dilate) rather than trying to prune the resulting mess
+  // afterward — this is what actually fixes it; post-hoc pruning on real art still
+  // let a 20-bone character balloon to 100+. This simplified mask is only used to
+  // find the skeleton's shape; the real mask still drives the mesh/texture.
+  const openRadius = Math.max(3, Math.round(Math.min(width, height) * 0.02));
+  const smoothed = open(mask, width, height, openRadius);
+  const thin = zhangSuenThin(smoothed, width, height);
   const graph = extractGraph(thin, width, height);
   // Antialiased/soft-edged source art thins to a skeleton with spurious short
   // side-branches (every small silhouette bump becomes a tiny branch). Prune only
   // genuinely tiny ones (by actual branch length) so real short appendages — hands,
   // feet, a short neck — survive; a uniform raster-level erosion would eat those too.
   const minLeafLength = Math.max(6, Math.round(Math.min(width, height) * 0.015));
-  return pruneNoise(graph, minLeafLength);
+  const pruned = pruneNoise(graph, minLeafLength);
+  return capBoneCount(pruned, MAX_BONES);
 }
+
+const MAX_BONES = 45;
 
 /**
  * Cleans up two kinds of thinning noise below minLength: dead-end spurs (a leaf
@@ -57,18 +71,7 @@ function pruneNoise(graph: SkeletonGraph, minLength: number): SkeletonGraph {
       degree.set(e.a, (degree.get(e.a) ?? 0) + 1);
       degree.set(e.b, (degree.get(e.b) ?? 0) + 1);
     }
-    // Real geometric (pixel) length, not simplified point count — Douglas-Peucker
-    // collapses a perfectly straight limb down to zero intermediate points, which
-    // would otherwise make long straight limbs look exactly like tiny noise spurs.
-    const edgeLength = (e: SkeletonEdge) => {
-      const a = nodeById.get(e.a);
-      const b = nodeById.get(e.b);
-      if (!a || !b) return Infinity;
-      const pts: [number, number][] = [[a.px, a.py], ...e.polyline, [b.px, b.py]];
-      let len = 0;
-      for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
-      return len;
-    };
+    const edgeLength = (e: SkeletonEdge) => computeEdgeLength(nodeById, e);
 
     const leavesToRemove = new Set<number>();
     for (const e of edges) {
@@ -101,6 +104,61 @@ function pruneNoise(graph: SkeletonGraph, minLength: number): SkeletonGraph {
       .filter((e) => e !== shortBranchEdge)
       .map((e) => ({ ...e, a: e.a === b.id ? a.id : e.a, b: e.b === b.id ? a.id : e.b }))
       .filter((e) => e.a !== e.b); // drop any edge that became a self-loop from the merge
+  }
+
+  return { nodes, edges };
+}
+
+/** Real geometric (pixel) length, not simplified point count — Douglas-Peucker
+ *  collapses a perfectly straight limb down to zero intermediate points, which
+ *  would otherwise make long straight limbs look exactly like tiny noise spurs. */
+function computeEdgeLength(nodeById: Map<number, SkeletonNode>, e: SkeletonEdge): number {
+  const a = nodeById.get(e.a);
+  const b = nodeById.get(e.b);
+  if (!a || !b) return Infinity;
+  const pts: [number, number][] = [[a.px, a.py], ...e.polyline, [b.px, b.py]];
+  let len = 0;
+  for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+  return len;
+}
+
+/**
+ * Hard ceiling, independent of the length-based pruning above: even after removing
+ * genuine noise, some source art (dense fur/foliage texture, complex silhouettes)
+ * can still thin into more real-looking branch points than any animator would want
+ * to work with. If still over the cap, repeatedly trim whichever leaf sits at the
+ * end of the currently-shortest branch until under it — guarantees a usable rig
+ * regardless of how detailed the input art is, rather than trusting one fixed
+ * length threshold to be right for every image.
+ */
+function capBoneCount(graph: SkeletonGraph, maxBones: number): SkeletonGraph {
+  let nodes = graph.nodes;
+  let edges = graph.edges;
+
+  while (nodes.length > maxBones) {
+    const nodeById = new Map(nodes.map((n) => [n.id, n]));
+    const degree = new Map<number, number>();
+    for (const e of edges) {
+      degree.set(e.a, (degree.get(e.a) ?? 0) + 1);
+      degree.set(e.b, (degree.get(e.b) ?? 0) + 1);
+    }
+
+    let shortestNode: number | null = null;
+    let shortestLen = Infinity;
+    for (const e of edges) {
+      const aLeaf = (degree.get(e.a) ?? 0) <= 1;
+      const bLeaf = (degree.get(e.b) ?? 0) <= 1;
+      if (!aLeaf && !bLeaf) continue;
+      const len = computeEdgeLength(nodeById, e);
+      if (len < shortestLen) {
+        shortestLen = len;
+        shortestNode = aLeaf ? e.a : e.b;
+      }
+    }
+    if (shortestNode === null) break; // no leaves left to trim (shouldn't happen for a tree)
+
+    edges = edges.filter((e) => e.a !== shortestNode && e.b !== shortestNode);
+    nodes = nodes.filter((n) => n.id !== shortestNode);
   }
 
   return { nodes, edges };

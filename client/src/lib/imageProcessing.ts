@@ -134,8 +134,14 @@ export function dilate(mask: Uint8Array, width: number, height: number, radius: 
   return morph(mask, width, height, radius, /* anyMode */ true);
 }
 
-function erode(mask: Uint8Array, width: number, height: number, radius: number): Uint8Array {
+export function erode(mask: Uint8Array, width: number, height: number, radius: number): Uint8Array {
   return morph(mask, width, height, radius, /* anyMode */ false);
+}
+
+/** Erode then dilate — strips protrusions/wisps narrower than radius without
+ *  shrinking the overall silhouette back down (opposite of closing). */
+export function open(mask: Uint8Array, width: number, height: number, radius: number): Uint8Array {
+  return dilate(erode(mask, width, height, radius), width, height, radius);
 }
 
 /** Shared square-kernel min/max filter. anyMode=true -> dilate (OR), false -> erode (AND). */

@@ -114,7 +114,42 @@ export function buildRig(
     bones.push(bone);
   }
 
-  return { bones };
+  return { bones: capFinalBoneCount(bones, MAX_BONES) };
+}
+
+const MAX_BONES = 40;
+
+/**
+ * skeletonize.ts already caps the raw skeleton graph, but each surviving edge can
+ * still contribute a few simplified-polyline midpoints as their own bones here —
+ * so the graph-level cap doesn't bound what the user actually sees. Enforce the
+ * real ceiling on the final bone list: repeatedly drop whichever leaf bone sits
+ * closest to its parent (least anatomically significant) until under the cap.
+ */
+function capFinalBoneCount(bones: BoneNode[], maxBones: number): BoneNode[] {
+  let result = bones;
+  while (result.length > maxBones) {
+    const childCount = new Map<string, number>();
+    for (const b of result) {
+      if (b.parentId) childCount.set(b.parentId, (childCount.get(b.parentId) ?? 0) + 1);
+    }
+    let shortestLeaf: BoneNode | null = null;
+    let shortestDist = Infinity;
+    for (const b of result) {
+      if (b.jointType === 'root' || (childCount.get(b.id) ?? 0) > 0) continue; // not a leaf
+      const parent = result.find((p) => p.id === b.parentId);
+      const dist = parent
+        ? Math.hypot(b.position[0] - parent.position[0], b.position[1] - parent.position[1], b.position[2] - parent.position[2])
+        : Infinity;
+      if (dist < shortestDist) {
+        shortestDist = dist;
+        shortestLeaf = b;
+      }
+    }
+    if (!shortestLeaf) break; // no leaves left to trim (shouldn't happen for a tree with >1 node)
+    result = result.filter((b) => b.id !== shortestLeaf!.id);
+  }
+  return result;
 }
 
 /**

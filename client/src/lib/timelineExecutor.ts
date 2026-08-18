@@ -21,11 +21,23 @@ export class TimelineExecutor {
   private smoothedRootQuat = new THREE.Quaternion();
   private smoothedRootScale = new THREE.Vector3(1, 1, 1);
   private smoothingPrimed = false;
+  // The root bone's true bind-pose position - captured once, before the per-frame
+  // reset below ever runs. Actions treat root position as an offset *from bind
+  // pose*, so "reset to bind pose" has to mean this, not a hardcoded (0,0,0).
+  // Those used to be the same thing by coincidence: the old mesh-Y-centering
+  // scheme put the rig's anatomical center (where auto-rigging roots the tree)
+  // close to y=0. Anchoring the character at its feet instead (so y=0 is the
+  // ground, not the character's middle) moved that center to roughly half the
+  // character's height - resetting to a hardcoded (0,0,0) every frame then
+  // silently dragged the *entire* skeleton down by that same amount, pushing
+  // the legs underground and out of view while the head/torso just rode low.
+  private readonly bindRootPosition: THREE.Vector3;
   timeline: SceneTimeline | null = null;
   playing = true;
 
   constructor(runtime: AnimatableRig) {
     this.ctx = makeActionContext(runtime);
+    this.bindRootPosition = runtime.rootBone.position.clone();
   }
 
   setTimeline(timeline: SceneTimeline | null) {
@@ -49,7 +61,7 @@ export class TimelineExecutor {
     // that moves/scales the root can drag that stale, often mid-swing rotation
     // through a large arc and shear the skin badly (e.g. jump immediately after
     // walk_to, which never un-bends the frozen mid-stride legs/arms).
-    this.ctx.runtime.rootBone.position.set(0, 0, 0);
+    this.ctx.runtime.rootBone.position.copy(this.bindRootPosition);
     this.ctx.runtime.rootBone.rotation.set(0, 0, 0);
     this.ctx.runtime.rootBone.scale.set(1, 1, 1);
     for (const bone of this.ctx.runtime.boneById.values()) {

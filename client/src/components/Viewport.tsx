@@ -107,8 +107,21 @@ function Backdrop({ url }: { url: string }) {
   );
 }
 
+// The character's feet sit exactly at y=0 (see computeImageToModelTransform in
+// meshBuilder.ts) and the debug Grid is also drawn at y=0 - a solid, opaque
+// Ground mesh at that exact same height was perfectly coplanar with both,
+// which is a real z-fighting bug (confirmed: the grid lines vanished with
+// Ground at y=0, came back once this offset was added). This alone was NOT
+// the cause of the character's legs disappearing, though - that turned out to
+// be a separate, larger bug in timelineExecutor.ts (the root bone was being
+// reset to a hardcoded (0,0,0) instead of its true bind-pose position every
+// frame, dragging the whole skeleton down by ~0.9 units once the grounding
+// fix moved that bind-pose position away from the origin). This offset is
+// still worth keeping on its own merits, just for the grid-line z-fighting.
+const GROUND_Y = -0.02;
+
 /**
- * A real, solid, walkable floor at y=0 - present whether or not a background is
+ * A real, solid, walkable floor - present whether or not a background is
  * loaded, so the character always has actual 3D ground to move across rather
  * than an implied one. Kept visually neutral (dark, matte) since it's meant to
  * ground the character physically, not compete with either the debug grid lines
@@ -116,8 +129,8 @@ function Backdrop({ url }: { url: string }) {
  */
 function Ground() {
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-      <planeGeometry args={[200, 200]} />
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, GROUND_Y, 0]} receiveShadow>
+      <planeGeometry args={[60, 60]} />
       <meshStandardMaterial color="#1c1f26" roughness={0.95} metalness={0} />
     </mesh>
   );
@@ -308,7 +321,14 @@ export function Viewport() {
           cropped off the character's feet (and with them, the ground/shadow/
           background context) by default - full body only came into view if
           the user manually zoomed out. */}
-      <Canvas shadows camera={{ position: [0, 1.6, 5.6], fov: 40 }} gl={{ preserveDrawingBuffer: true }}>
+      {/* far: 150 (default is 2000) - the scene doesn't need anything past the
+          ground plane's own extent, so there's no reason to spread the depth
+          buffer's precision across a much larger range than the scene actually
+          uses. (This was tried as a fix for the character's legs disappearing
+          into the ground - it wasn't the cause, see timelineExecutor.ts's
+          bindRootPosition fix for the real one - but it's still worth keeping
+          as a real, if minor, precision improvement.) */}
+      <Canvas shadows camera={{ position: [0, 1.6, 5.6], fov: 40, near: 0.1, far: 150 }} gl={{ preserveDrawingBuffer: true }}>
         <CanvasRegistrar />
         <CameraPresetHandler controlsRef={orbitControlsRef} />
         <CameraFollow controlsRef={orbitControlsRef} />

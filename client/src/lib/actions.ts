@@ -6,6 +6,15 @@ import { poseBone } from './jointConstraints';
 export interface ActionContext {
   runtime: AnimatableRig;
   findByPrefix: (prefix: string) => THREE.Bone[];
+  /**
+   * Bones from `topName` down to its deepest single-path descendant, in
+   * hierarchy order (hip -> knee -> ankle -> toe, for a leg). Real gait
+   * treats each joint level differently - a knee only bends forward and
+   * peaks during swing, an ankle does something else again - so anything
+   * that wants to animate a limb "one joint at a time" needs this ordering,
+   * not just the flat unordered bag findByPrefix returns.
+   */
+  jointChain: (topName: string) => THREE.Bone[];
 }
 
 export function makeActionContext(runtime: AnimatableRig): ActionContext {
@@ -22,7 +31,39 @@ export function makeActionContext(runtime: AnimatableRig): ActionContext {
       .filter((b) => b.name === prefix || b.name.startsWith(`${prefix}.`))
       .map((b) => runtime.boneById.get(b.id)!)
       .filter(Boolean);
-  return { runtime, findByPrefix };
+
+  const childrenById = new Map<string, string[]>();
+  for (const b of runtime.rig.bones) {
+    if (!b.parentId) continue;
+    if (!childrenById.has(b.parentId)) childrenById.set(b.parentId, []);
+    childrenById.get(b.parentId)!.push(b.id);
+  }
+  const jointChain = (topName: string): THREE.Bone[] => {
+    const top = runtime.rig.bones.find((b) => b.name === topName);
+    if (!top) return [];
+    // Real case that motivated this guard: a leg's chain walked straight
+    // through a "Leg.L.R.L.2"-style joint and kept going into "Head",
+    // "Head.2" - the auto-rig's skeleton graph had threaded a stray
+    // head-region connection onto the leg's hierarchy path, and blindly
+    // following "first child" forever animated part of the face as if it
+    // were a foot. Stop the walk the instant a bone's own category (the
+    // word before its first ".") stops matching where we started - it is
+    // never correct for a chain to cross from one limb into an anatomically
+    // different one.
+    const category = topName.split('.')[0];
+    const chain: THREE.Bone[] = [];
+    let currentId: string | undefined = top.id;
+    while (currentId) {
+      const desc = runtime.rig.bones.find((b) => b.id === currentId);
+      if (!desc || desc.name.split('.')[0] !== category) break;
+      const bone = runtime.boneById.get(currentId);
+      if (bone) chain.push(bone);
+      currentId = childrenById.get(currentId)?.[0];
+    }
+    return chain;
+  };
+
+  return { runtime, findByPrefix, jointChain };
 }
 
 export type ActionFn = (ctx: ActionContext, t: number, elapsed: number, params: Record<string, unknown>, state: Record<string, unknown>) => void;
@@ -122,6 +163,60 @@ const sit: ActionFn = (ctx, t) => {
   }
 };
 
+// One sine per leg was applying the *same* waveform to hip, knee, and ankle
+// alike - mechanically wrong. Real gait treats each joint differently: the
+// hip leads with a symmetric forward/back swing; the knee only ever flexes
+// forward (a real knee doesn't hyperextend past straight) and peaks during
+// swing phase, when the foot is off the ground and needs to clear it,
+// staying essentially straight through stance while it bears weight; the
+// ankle does a smaller, further-lagged motion of its own. This walks each
+// leg's actual joint chain (hip -> knee -> ankle -> toe, from jointChain)
+// and gives each depth band along it its own curve instead of one blanket
+// amplitude for every bone in the leg.
+const HIP_SWING = 0.5;
+const KNEE_LIFT = 0.9;
+const KNEE_LAG = 0.65;
+const ANKLE_SWING = 0.3;
+const ANKLE_LAG = 1.1;
+
+function poseJointBand(ctx: ActionContext, chain: THREE.Bone[], phase: number) {
+  chain.forEach((bone, i) => {
+    const frac = chain.length > 1 ? i / (chain.length - 1) : 0;
+    let angle: number;
+    if (frac < 0.4) {
+      angle = Math.sin(phase) * HIP_SWING;
+    } else if (frac < 0.75) {
+      angle = Math.max(0, Math.sin(phase - KNEE_LAG)) * KNEE_LIFT;
+    } else {
+      angle = Math.sin(phase - ANKLE_LAG) * ANKLE_SWING;
+    }
+    setLocalEuler(ctx, bone, angle, 0, 0);
+  });
+}
+
+/**
+ * Poses both legs with the hip/knee/ankle-band curve above. Doesn't assume a
+ * clean top-level "Leg.L" + "Leg.R" split exists - on this rig's actual
+ * skeleton graph, both legs traced as one connected trunk from the pelvis
+ * down (only one root-level branch ever classified as a leg), so a second,
+ * separately-named leg simply doesn't exist to look up by name. Instead:
+ * walk the one real chain we have, then treat whatever other "Leg"-prefixed
+ * bones exist outside that chain as the second leg, in whatever order
+ * findByPrefix returns them - not perfectly hip-to-toe ordered, but a much
+ * closer approximation than the old flat "every leg bone gets the same
+ * sine" version, and it can't misfire onto an unrelated limb the way
+ * hardcoding a "Leg.R" that may not exist would.
+ */
+function poseLegs(ctx: ActionContext, phase: number) {
+  const primary = ctx.jointChain('Leg.L');
+  if (primary.length === 0) return;
+  poseJointBand(ctx, primary, phase);
+
+  const primaryIds = new Set(primary.map((b) => b.userData.rigId));
+  const secondary = ctx.findByPrefix('Leg').filter((b) => !primaryIds.has(b.userData.rigId));
+  if (secondary.length > 0) poseJointBand(ctx, secondary, phase + Math.PI);
+}
+
 const walkTo: ActionFn = (ctx, t, elapsed, params, state) => {
   if (!state.startPos) state.startPos = ctx.runtime.rootBone.position.clone();
   const startPos = state.startPos as THREE.Vector3;
@@ -140,11 +235,7 @@ const walkTo: ActionFn = (ctx, t, elapsed, params, state) => {
   // twice per stride cycle, so this runs at double the leg-swing frequency.
   ctx.runtime.rootBone.position.y += Math.abs(Math.cos(elapsed * 8)) * 0.045;
   ctx.runtime.rootBone.rotation.z = stride * 0.035;
-  const legs = ctx.findByPrefix('Leg');
-  legs.forEach((bone, i) => {
-    const phase = i % 2 === 0 ? stride : -stride;
-    setLocalEuler(ctx, bone, phase * 0.5, 0, 0);
-  });
+  poseLegs(ctx, elapsed * 8);
   // The bare 'Arm' prefix would also match any spurious numbered top-level
   // duplicate the auto-rig classifier produced (e.g. "Arm.R6" turning out to
   // be a piece of an ear, not a second right arm) - explicitly union just

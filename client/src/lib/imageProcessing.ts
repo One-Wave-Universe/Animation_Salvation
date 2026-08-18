@@ -172,3 +172,41 @@ function morph(mask: Uint8Array, width: number, height: number, radius: number, 
   }
   return out;
 }
+
+/**
+ * Mask-aware box blur over a per-pixel depth map. mockDepth (and, to a
+ * lesser extent, any real depth model) has per-pixel/per-row noise that a
+ * coarse relief mesh turns into visible banding once extruded - a thin body
+ * part like a leg only spans a few raw depth steps across its width, so
+ * even small row-to-row jumps in the raw estimate become a "ribbed"
+ * corrugated surface. Averaging only within the mask (never pulling in the
+ * background's zero) smooths that out without eating into the silhouette.
+ */
+export function smoothDepth(depth: Float32Array, mask: Uint8Array, width: number, height: number, radius: number): Float32Array {
+  const out = new Float32Array(depth.length);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      if (!mask[idx]) {
+        out[idx] = depth[idx];
+        continue;
+      }
+      let sum = 0;
+      let count = 0;
+      for (let dy = -radius; dy <= radius; dy++) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= height) continue;
+        for (let dx = -radius; dx <= radius; dx++) {
+          const nx = x + dx;
+          if (nx < 0 || nx >= width) continue;
+          const nidx = ny * width + nx;
+          if (!mask[nidx]) continue;
+          sum += depth[nidx];
+          count++;
+        }
+      }
+      out[idx] = count > 0 ? sum / count : depth[idx];
+    }
+  }
+  return out;
+}

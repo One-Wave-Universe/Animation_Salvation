@@ -9,7 +9,13 @@ export interface MeshBuildResult {
   sampleFront: (px: number, py: number) => { x: number; y: number; z: number } | null;
 }
 
-const GRID_RES = 96;
+// The silhouette wall (below) follows this grid directly, so its resolution
+// is what determines how "staircased" vs. smooth the character's outline
+// reads - 96 was visibly blocky/pixelated around the edges on a detailed
+// character. A single character mesh at this resolution is nowhere near a
+// WebGL vertex-count concern, so there's no real cost to spending more of it
+// on outline smoothness.
+const GRID_RES = 200;
 export const FRONT_DEPTH_SCALE = 0.35;
 const BACK_DEPTH_SCALE = 0.22;
 const BASE_THICKNESS = 0.05;

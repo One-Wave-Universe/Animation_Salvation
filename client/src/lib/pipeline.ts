@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { loadImageFile, extractMask } from './imageProcessing';
+import { loadImageFile, extractMask, smoothDepth } from './imageProcessing';
 import { buildCharacterMesh } from './meshBuilder';
 import { skeletonize } from './skeletonize';
 import { buildRig } from './rigBuilder';
@@ -41,9 +41,10 @@ export async function runPipeline(file: File, callbacks: PipelineCallbacks): Pro
 
   callbacks.onStage('estimating-depth', 'Loading depth model…');
   const dataUrl = img.canvas.toDataURL('image/png');
-  const depth = shouldUseMockDepth()
+  const rawDepth = shouldUseMockDepth()
     ? mockDepth(mask, img.width, img.height)
     : await estimateDepth(dataUrl, img.width, img.height, (label) => callbacks.onStage('estimating-depth', label));
+  const depth = smoothDepth(rawDepth, mask, img.width, img.height, 3);
 
   return assembleCharacter(img.canvas, mask, depth, img.width, img.height, undefined, callbacks);
 }

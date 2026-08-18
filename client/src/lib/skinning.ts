@@ -21,9 +21,15 @@ const FALLOFF_POWER = 3;
 // 0.45 can end up wider than the segment itself, so nearly the whole limb
 // blends across its neighbors instead of just the joint - which is what
 // reads as a limb built from rubber rather than rigid segments.
-const BLEND_FRACTION = 0.4; // fraction of a capsule's own length that blends into its neighbors
+// 0.4 (its first value) stopped the cross-limb bleed but overcorrected: joint
+// hierarchy restriction (below) is what actually prevents an unrelated limb
+// from tugging on this one, so the blend zone itself can be generous without
+// that problem coming back. A narrow zone just meant each of this rig's many
+// short hinge segments read as its own hard-edged rigid band - a visibly
+// "corrugated" leg even standing still, not the smooth taper a real limb has.
+const BLEND_FRACTION = 0.8; // fraction of a capsule's own length that blends into its neighbors
 const MIN_INFLUENCE_DISTANCE = 0.08; // floor for zero-length (leaf/root) capsules
-const MAX_INFLUENCE_DISTANCE_CAP = 0.4; // ceiling so a long torso/spine capsule doesn't blend absurdly wide either
+const MAX_INFLUENCE_DISTANCE_CAP = 0.5; // ceiling so a long torso/spine capsule doesn't blend absurdly wide either
 // How many parent/child hops from a vertex's true nearest bone another bone
 // is still allowed to blend in. 2 covers a real joint (e.g. upper-arm ->
 // elbow -> forearm all blending near the elbow) without reaching across to

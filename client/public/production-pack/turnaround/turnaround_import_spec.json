@@ -1,0 +1,37 @@
+{
+  "character": "Goblin Raccoon",
+  "output": {
+    "frame_count": 360,
+    "degrees_per_frame": 1,
+    "naming": "goblin_raccoon_{state}_{angle:03d}.png",
+    "full_body_required": true,
+    "fixed_camera": true,
+    "fixed_ground_line": true
+  },
+  "states": [
+    "mask_on_hood_on",
+    "mask_on_hood_off",
+    "mask_off_hood_on",
+    "mask_off_hood_off"
+  ],
+  "anchor_angles": [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180, 202.5, 225, 247.5, 270, 292.5, 315, 337.5],
+  "rig_rules": {
+    "interpolate_transform": true,
+    "interpolate_mesh_deformation": true,
+    "crossfade_whole_character": false,
+    "lock_identity": true,
+    "lock_costume": true,
+    "lock_height": true,
+    "lock_foot_contact": true,
+    "tail_parent": "pelvis",
+    "hood_parent": "head",
+    "mask_parent": "head"
+  },
+  "validation": {
+    "reject_cropped_frames": true,
+    "reject_detached_tail": true,
+    "reject_duplicate_angles": true,
+    "reject_background_fragments": true,
+    "loop_seam_degrees": [359, 0]
+  }
+}

@@ -39,6 +39,11 @@ const idle: ActionFn = (ctx, _t, elapsed) => {
   for (const bone of ctx.findByPrefix('Arm')) {
     setLocalEuler(ctx, bone, Math.sin(elapsed * 1.3 + bone.name.length) * 0.03, 0, 0);
   }
+  // Slow head sway/nod, out of phase with the body bob - reads as breathing/
+  // looking-around rather than a perfectly still mannequin.
+  for (const bone of ctx.findByPrefix('Head')) {
+    setLocalEuler(ctx, bone, Math.sin(elapsed * 0.9) * 0.025, Math.sin(elapsed * 0.55 + 1) * 0.02, 0);
+  }
 };
 
 const lookAt: ActionFn = (ctx, t, _elapsed, params) => {
@@ -67,12 +72,37 @@ const wave: ActionFn = (ctx, t, elapsed, params) => {
   }
 };
 
+// Fraction of the jump's duration spent crouching before takeoff / settling
+// after landing. The old version's squash math worked out to a change of a
+// few percent for one tenth of the animation - essentially invisible; this
+// gives each phase real screen time and a distinct silhouette.
+const JUMP_ANTICIPATION = 0.14;
+const JUMP_SETTLE = 0.14;
+
 const jump: ActionFn = (ctx, t, _elapsed, params) => {
   const height = Number(params.height ?? 0.6);
-  const arc = Math.sin(Math.PI * THREE.MathUtils.clamp(t, 0, 1));
-  ctx.runtime.rootBone.position.y = arc * height;
-  const squash = 1 - 0.15 * Math.max(0, Math.sin(Math.PI * 2 * t)) * (t < 0.1 || t > 0.9 ? 1 : 0);
-  ctx.runtime.rootBone.scale.set(2 - squash, squash, 2 - squash);
+  const airStart = JUMP_ANTICIPATION;
+  const airEnd = 1 - JUMP_SETTLE;
+
+  let y: number;
+  let squash: number; // 1 = normal; <1 squashed (crouch/landing), >1 stretched (mid-air motion)
+  if (t < airStart) {
+    const p = t / airStart;
+    y = -0.07 * Math.sin((p * Math.PI) / 2);
+    squash = 1 - 0.22 * p;
+  } else if (t < airEnd) {
+    const airT = (t - airStart) / (airEnd - airStart);
+    y = Math.sin(Math.PI * airT) * height;
+    squash = 1 + 0.12 * Math.abs(Math.cos(Math.PI * airT));
+  } else {
+    const p = (t - airEnd) / JUMP_SETTLE;
+    y = THREE.MathUtils.lerp(0, 0, p);
+    squash = THREE.MathUtils.lerp(0.78, 1, THREE.MathUtils.smoothstep(p, 0, 1));
+  }
+
+  ctx.runtime.rootBone.position.y = y;
+  const stretchXZ = 1 / Math.sqrt(squash); // rough volume preservation
+  ctx.runtime.rootBone.scale.set(stretchXZ, squash, stretchXZ);
 };
 
 const sit: ActionFn = (ctx, t) => {
@@ -95,6 +125,12 @@ const walkTo: ActionFn = (ctx, t, elapsed, params, state) => {
   }
 
   const stride = Math.sin(elapsed * 8);
+  // The lerp above pins position.y to a single captured value for the whole
+  // action, so without this the walk has no vertical motion at all - every
+  // step lands perfectly flat. Real gait dips slightly at each foot plant,
+  // twice per stride cycle, so this runs at double the leg-swing frequency.
+  ctx.runtime.rootBone.position.y += Math.abs(Math.cos(elapsed * 8)) * 0.045;
+  ctx.runtime.rootBone.rotation.z = stride * 0.035;
   const legs = ctx.findByPrefix('Leg');
   legs.forEach((bone, i) => {
     const phase = i % 2 === 0 ? stride : -stride;

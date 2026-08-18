@@ -119,7 +119,11 @@ export function Viewport() {
 
   return (
     <div className="viewport">
-      <Canvas shadows camera={{ position: [0, 1.3, 3.2], fov: 40 }} gl={{ preserveDrawingBuffer: true }}>
+      {/* Pulled back from the original [0, 1.3, 3.2]/target-y-1 framing, which
+          cropped off the character's feet (and with them, the ground/shadow/
+          background context) by default - full body only came into view if
+          the user manually zoomed out. */}
+      <Canvas shadows camera={{ position: [0, 1.6, 5.6], fov: 40 }} gl={{ preserveDrawingBuffer: true }}>
         <CanvasRegistrar />
         <color attach="background" args={['#14171c']} />
         <ambientLight intensity={0.7} />
@@ -139,7 +143,7 @@ export function Viewport() {
             <ContactBlob />
           </>
         )}
-        <OrbitControls target={[0, 1, 0]} enableDamping dampingFactor={0.1} minDistance={1} maxDistance={10} />
+        <OrbitControls target={[0, 0.8, 0]} enableDamping dampingFactor={0.1} minDistance={1} maxDistance={10} />
       </Canvas>
     </div>
   );

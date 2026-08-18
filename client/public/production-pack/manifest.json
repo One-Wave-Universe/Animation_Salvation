@@ -1,0 +1,30 @@
+{
+  "format_version": "1.0",
+  "pack_id": "one-wave-production-2026-08-17",
+  "purpose": "Canonical art handoff for Claude and other animation agents",
+  "chroma_key": "#00E5F0",
+  "read_order": "left-to-right then top-to-bottom",
+  "assets": [
+    {"id": "bg_fork", "path": "episode-01/backgrounds/forest-fork-machine-v1.png", "kind": "background", "locked_camera": true},
+    {"id": "bg_fork_active", "path": "episode-01/backgrounds/forest-fork-machine-activated-v1.png", "kind": "background", "locked_camera": true},
+    {"id": "gr_walk_toward", "path": "episode-01/gr-actions/walk-toward-24-v1.png", "kind": "action_sheet", "columns": 6, "rows": 4, "frames": 24, "direction": "toward_camera", "playback_fps": 8},
+    {"id": "gr_walk_machine", "path": "episode-01/gr-actions/walk-away-to-machine-24-v1.png", "kind": "action_sheet", "columns": 6, "rows": 4, "frames": 24, "direction": "rear_three_quarter", "playback_fps": 8},
+    {"id": "gr_notice_poke", "path": "episode-01/gr-actions/stop-notice-poke-16-v1.png", "kind": "action_sheet", "columns": 4, "rows": 4, "frames": 16, "loop": false, "playback_fps": 4},
+    {"id": "gr_conduct", "path": "episode-01/gr-actions/conduct-react-24-v1.png", "kind": "action_sheet", "columns": 6, "rows": 4, "frames": 24, "loop": false, "playback_fps": 4},
+    {"id": "squirrel_tree", "path": "episode-01/secondary-actions/squirrel-march-tree-loop-16-v1.png", "kind": "action_sheet", "columns": 4, "rows": 4, "frames": 16, "loop": false, "playback_fps": 4},
+    {"id": "noobs_acting", "path": "cast/noobs-acting-8.png", "kind": "acting_reference", "columns": 4, "rows": 2, "frames": 8},
+    {"id": "cerberus_acting", "path": "cast/cerberus-acting-8.png", "kind": "acting_reference", "columns": 4, "rows": 2, "frames": 8},
+    {"id": "nexus_acting", "path": "cast/nexus-acting-8.png", "kind": "acting_reference", "columns": 4, "rows": 2, "frames": 8},
+    {"id": "gr_model", "path": "references/gr-canonical-model-sheet.png", "kind": "identity_reference"},
+    {"id": "nexus_page", "path": "references/nexus-character-page.png", "kind": "identity_reference"},
+    {"id": "nexus_world", "path": "references/nexus-story-world-page.png", "kind": "world_reference"}
+  ],
+  "validation": {
+    "anchor": "ground_contact",
+    "forbid_camera_shake_as_motion": true,
+    "forbid_text_over_character": true,
+    "reject_duplicate_limbs": true,
+    "reject_detached_tail": true,
+    "reject_costume_drift": true
+  }
+}

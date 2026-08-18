@@ -78,6 +78,8 @@ export interface Capsule {
   boneIndex: number;
   p0: THREE.Vector3;
   p1: THREE.Vector3;
+  /** p1.distanceTo(p0) - how far this specific segment spans, for scaling the skin-weight blend zone to the bone's own size (see skinning.ts). */
+  length: number;
 }
 
 /**
@@ -92,11 +94,14 @@ export function buildCapsules(rig: RigDescription, boneIndex: Map<string, number
   for (const desc of rig.bones) {
     if (!desc.parentId) continue;
     const parentDesc = byId.get(desc.parentId)!;
+    const p0 = new THREE.Vector3(...parentDesc.position);
+    const p1 = new THREE.Vector3(...desc.position);
     capsules.push({
       boneId: desc.parentId,
       boneIndex: boneIndex.get(desc.parentId)!,
-      p0: new THREE.Vector3(...parentDesc.position),
-      p1: new THREE.Vector3(...desc.position),
+      p0,
+      p1,
+      length: p0.distanceTo(p1),
     });
   }
   // Guarantee every bone (including leaves and the root itself) owns at least a
@@ -104,7 +109,7 @@ export function buildCapsules(rig: RigDescription, boneIndex: Map<string, number
   for (const desc of rig.bones) {
     if (capsules.some((c) => c.boneId === desc.id)) continue;
     const p = new THREE.Vector3(...desc.position);
-    capsules.push({ boneId: desc.id, boneIndex: boneIndex.get(desc.id)!, p0: p, p1: p });
+    capsules.push({ boneId: desc.id, boneIndex: boneIndex.get(desc.id)!, p0: p, p1: p, length: 0 });
   }
   return capsules;
 }

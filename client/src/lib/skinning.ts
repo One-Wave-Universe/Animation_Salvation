@@ -12,15 +12,18 @@ export interface RigRuntime {
 
 const MAX_INFLUENCES = 3;
 const FALLOFF_POWER = 3;
-// Hard cutoff, in model-space units (character height is normalized to 2 by
-// meshBuilder - see TARGET_HEIGHT). Bones farther than this from a vertex get
-// zero weight, full stop, instead of an ever-smaller but still nonzero one.
-// Without a real cutoff, a torso vertex near the shoulder can end up with a
-// *leg* bone as one of its "4 nearest" simply because the auto-rig packs 30-40
-// bones into a ~2-unit-tall mesh - every part of the body ends up with a
-// little pull from bones it has nothing to do with, which is exactly what
-// reads as melty/taffy stretching once anything moves.
-const MAX_INFLUENCE_DISTANCE = 0.45;
+// The blend zone around each capsule scales with that bone's *own* length,
+// not a fixed world-space radius. A real rig reads as rigid limb segments
+// with blending confined to a narrow band right at each joint - the blend
+// zone is small relative to the bone. A fixed absolute cutoff doesn't know
+// how long any given bone actually is: on a 24-hinge-joint auto-rig where
+// individual segments can be quite short, a "generous" fixed radius like
+// 0.45 can end up wider than the segment itself, so nearly the whole limb
+// blends across its neighbors instead of just the joint - which is what
+// reads as a limb built from rubber rather than rigid segments.
+const BLEND_FRACTION = 0.4; // fraction of a capsule's own length that blends into its neighbors
+const MIN_INFLUENCE_DISTANCE = 0.08; // floor for zero-length (leaf/root) capsules
+const MAX_INFLUENCE_DISTANCE_CAP = 0.4; // ceiling so a long torso/spine capsule doesn't blend absurdly wide either
 // How many parent/child hops from a vertex's true nearest bone another bone
 // is still allowed to blend in. 2 covers a real joint (e.g. upper-arm ->
 // elbow -> forearm all blending near the elbow) without reaching across to
@@ -49,6 +52,12 @@ function applySkinWeights(geometry: THREE.BufferGeometry, capsules: Capsule[], a
   const skinIndex = new Float32Array(vertexCount * 4);
   const skinWeight = new Float32Array(vertexCount * 4);
 
+  // Each capsule's blend-zone cutoff is a fraction of its own length, not a
+  // fixed world-space radius - see BLEND_FRACTION above.
+  const capsuleCutoffs = capsules.map((cap) =>
+    THREE.MathUtils.clamp(cap.length * BLEND_FRACTION, MIN_INFLUENCE_DISTANCE, MAX_INFLUENCE_DISTANCE_CAP),
+  );
+
   const v = new THREE.Vector3();
   const hopCache = new Map<number, Map<number, number>>();
   for (let i = 0; i < vertexCount; i++) {
@@ -56,12 +65,13 @@ function applySkinWeights(geometry: THREE.BufferGeometry, capsules: Capsule[], a
 
     // Pass 1: distance to every capsule, and which bone is truly nearest -
     // this is the vertex's "home" bone regardless of hierarchy.
-    const dists: { boneIndex: number; d: number }[] = [];
+    const dists: { boneIndex: number; d: number; cutoff: number }[] = [];
     let nearestBoneIndex = -1;
     let nearestDist = Infinity;
-    for (const cap of capsules) {
+    for (let c = 0; c < capsules.length; c++) {
+      const cap = capsules[c];
       const d = pointToSegmentDistance(v, cap.p0, cap.p1);
-      dists.push({ boneIndex: cap.boneIndex, d });
+      dists.push({ boneIndex: cap.boneIndex, d, cutoff: capsuleCutoffs[c] });
       if (d < nearestDist) {
         nearestDist = d;
         nearestBoneIndex = cap.boneIndex;
@@ -78,15 +88,15 @@ function applySkinWeights(geometry: THREE.BufferGeometry, capsules: Capsule[], a
     }
 
     const bestPerBone = new Map<number, number>();
-    for (const { boneIndex, d } of dists) {
+    for (const { boneIndex, d, cutoff } of dists) {
       if (!allowedHops.has(boneIndex)) continue;
-      if (d >= MAX_INFLUENCE_DISTANCE) continue;
+      if (d >= cutoff) continue;
       // Smooth (compactly-supported) falloff rather than a hard-truncated
       // inverse-power curve: taper continuously to exactly 0 at the cutoff
       // instead of dropping straight from "full weight" to "excluded" at the
       // boundary, which would just relocate the tear to the cutoff radius
       // instead of the hierarchy boundary.
-      const taper = 1 - (d / MAX_INFLUENCE_DISTANCE) ** 2;
+      const taper = 1 - (d / cutoff) ** 2;
       const w = (taper * taper) / Math.pow(d + 0.02, FALLOFF_POWER);
       const prev = bestPerBone.get(boneIndex);
       if (prev === undefined || w > prev) bestPerBone.set(boneIndex, w);

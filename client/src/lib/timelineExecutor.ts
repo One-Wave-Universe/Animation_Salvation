@@ -3,10 +3,22 @@ import type { SceneTimeline } from '../types';
 import type { AnimatableRig } from './boneHierarchy';
 import { ACTIONS, makeActionContext, type ActionContext } from './actions';
 
+// How quickly the rendered pose catches up to the raw target pose, in seconds.
+// Bind-pose resets and hard cuts between actions produce an instantaneous
+// target change every frame; slewing the *rendered* transform toward that
+// target (instead of applying it directly) turns those pops into a fast but
+// continuous catch-up instead of a snap, without changing any action's math.
+const SMOOTHING_TAU = 0.09;
+
 export class TimelineExecutor {
   private ctx: ActionContext;
   private eventState = new Map<string, Record<string, unknown>>();
   private clock = 0;
+  private smoothedBoneQuat = new Map<string, THREE.Quaternion>();
+  private smoothedRootPos = new THREE.Vector3();
+  private smoothedRootQuat = new THREE.Quaternion();
+  private smoothedRootScale = new THREE.Vector3(1, 1, 1);
+  private smoothingPrimed = false;
   timeline: SceneTimeline | null = null;
   playing = true;
 
@@ -44,14 +56,47 @@ export class TimelineExecutor {
 
     ACTIONS.idle(this.ctx, 1, this.clock, {}, this.stateFor('__idle'));
 
-    if (!this.timeline) return;
-    for (const event of this.timeline.events) {
-      if (this.clock < event.start || this.clock > event.start + event.duration) continue;
-      const fn = ACTIONS[event.action];
-      if (!fn) continue;
-      const t = event.duration > 0 ? THREE.MathUtils.clamp((this.clock - event.start) / event.duration, 0, 1) : 1;
-      const elapsed = this.clock - event.start;
-      fn(this.ctx, t, elapsed, event.params, this.stateFor(event.id));
+    if (this.timeline) {
+      for (const event of this.timeline.events) {
+        if (this.clock < event.start || this.clock > event.start + event.duration) continue;
+        const fn = ACTIONS[event.action];
+        if (!fn) continue;
+        const t = event.duration > 0 ? THREE.MathUtils.clamp((this.clock - event.start) / event.duration, 0, 1) : 1;
+        const elapsed = this.clock - event.start;
+        fn(this.ctx, t, elapsed, event.params, this.stateFor(event.id));
+      }
+    }
+
+    this.smoothPose(deltaSeconds);
+  }
+
+  /**
+   * Slews the actually-rendered transform toward the raw target every frame
+   * instead of applying the target directly - see SMOOTHING_TAU. Runs after
+   * idle/actions have written their raw target into rootBone and every bone's
+   * quaternion, then overwrites those same fields with the smoothed result.
+   */
+  private smoothPose(deltaSeconds: number) {
+    const root = this.ctx.runtime.rootBone;
+    const alpha = this.smoothingPrimed ? 1 - Math.exp(-Math.max(deltaSeconds, 0) / SMOOTHING_TAU) : 1;
+    this.smoothingPrimed = true;
+
+    this.smoothedRootPos.lerp(root.position, alpha);
+    this.smoothedRootQuat.slerp(root.quaternion, alpha);
+    this.smoothedRootScale.lerp(root.scale, alpha);
+    root.position.copy(this.smoothedRootPos);
+    root.quaternion.copy(this.smoothedRootQuat);
+    root.scale.copy(this.smoothedRootScale);
+
+    for (const [id, bone] of this.ctx.runtime.boneById) {
+      if (bone === root) continue;
+      let smoothed = this.smoothedBoneQuat.get(id);
+      if (!smoothed) {
+        smoothed = bone.quaternion.clone();
+        this.smoothedBoneQuat.set(id, smoothed);
+      }
+      smoothed.slerp(bone.quaternion, alpha);
+      bone.quaternion.copy(smoothed);
     }
   }
 

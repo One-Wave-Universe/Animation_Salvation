@@ -1,9 +1,43 @@
-import { Suspense, useEffect, useRef } from 'react';
+import { Suspense, useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame, useThree, useLoader } from '@react-three/fiber';
 import { OrbitControls, Grid } from '@react-three/drei';
 import * as THREE from 'three';
 import { useAppStore } from '../store';
 import { sceneRuntime } from '../lib/sceneRuntime';
+
+/**
+ * A soft radial-gradient blob under the character's feet - grounds him against
+ * a photo background instead of reading as pasted on top. Deliberately a plain
+ * alpha-blended decal (canvas-drawn gradient texture) rather than drei's
+ * ContactShadows: that component renders through an offscreen render target
+ * and a blur pass, which is worth avoiding here since this app is also driven
+ * headlessly (Playwright + software WebGL) for testing, where render-target
+ * paths are more likely to behave inconsistently than a single static texture.
+ */
+function ContactBlob() {
+  const texture = useMemo(() => {
+    const size = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    gradient.addColorStop(0, 'rgba(0,0,0,0.7)');
+    gradient.addColorStop(0.55, 'rgba(0,0,0,0.55)');
+    gradient.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+    const tex = new THREE.CanvasTexture(canvas);
+    return tex;
+  }, []);
+
+  return (
+    <mesh position={[0, 0.015, 0]} rotation={[-Math.PI / 2, 0, 0]} renderOrder={1}>
+      <planeGeometry args={[1.6, 0.9]} />
+      <meshBasicMaterial map={texture} transparent depthWrite={false} toneMapped={false} />
+    </mesh>
+  );
+}
 
 /**
  * A locked Episode-01 plate, placed as a flat plane behind the character.
@@ -99,7 +133,12 @@ export function Viewport() {
         ) : (
           <Grid infiniteGrid fadeDistance={20} cellColor="#2a2f3a" sectionColor="#3a4150" position={[0, 0, 0]} />
         )}
-        {stage === 'ready' && readyVersion > 0 && <CharacterMesh key={readyVersion} />}
+        {stage === 'ready' && readyVersion > 0 && (
+          <>
+            <CharacterMesh key={readyVersion} />
+            <ContactBlob />
+          </>
+        )}
         <OrbitControls target={[0, 1, 0]} enableDamping dampingFactor={0.1} minDistance={1} maxDistance={10} />
       </Canvas>
     </div>

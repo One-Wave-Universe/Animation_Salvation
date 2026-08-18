@@ -16,6 +16,7 @@ interface AppState {
   directorBusy: boolean;
   directorError: string | null;
   readyVersion: number;
+  backgroundUrl: string | null;
 
   inpaintRegionsCount: number;
   inpaintBusy: boolean;
@@ -38,6 +39,7 @@ interface AppState {
   setInpaintProgress: (p: { done: number; total: number } | null) => void;
   setInpaintDone: (done: boolean) => void;
   setInpaintError: (message: string | null) => void;
+  setBackgroundUrl: (url: string | null) => void;
   reset: () => void;
 }
 
@@ -52,6 +54,7 @@ export const useAppStore = create<AppState>((set) => ({
   directorBusy: false,
   directorError: null,
   readyVersion: 0,
+  backgroundUrl: null,
 
   inpaintRegionsCount: 0,
   inpaintBusy: false,
@@ -86,6 +89,7 @@ export const useAppStore = create<AppState>((set) => ({
   setInpaintProgress: (inpaintProgress) => set({ inpaintProgress }),
   setInpaintDone: (inpaintDone) => set({ inpaintDone }),
   setInpaintError: (inpaintError) => set({ inpaintError }),
+  setBackgroundUrl: (backgroundUrl) => set({ backgroundUrl }),
   reset: () =>
     set({
       stage: 'idle',

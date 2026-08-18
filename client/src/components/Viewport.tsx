@@ -1,9 +1,51 @@
-import { useEffect, useRef } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { Suspense, useEffect, useRef } from 'react';
+import { Canvas, useFrame, useThree, useLoader } from '@react-three/fiber';
 import { OrbitControls, Grid } from '@react-three/drei';
 import * as THREE from 'three';
 import { useAppStore } from '../store';
 import { sceneRuntime } from '../lib/sceneRuntime';
+
+/**
+ * A locked Episode-01 plate, placed as a flat plane behind the character.
+ * Sized to the *actual* view frustum at that depth (found by intersecting the
+ * camera's true forward ray with the plane - accounts for the camera's
+ * downward tilt, not just raw z-distance) so it always fills the frame with
+ * no seam at the edges. The image is UV-cropped to "cover" that frame rather
+ * than stretched, since the plate's aspect ratio rarely matches the canvas.
+ */
+function Backdrop({ url }: { url: string }) {
+  const texture = useLoader(THREE.TextureLoader, url);
+  const { camera, size } = useThree();
+  const planeZ = -6;
+  const perspective = camera as THREE.PerspectiveCamera;
+
+  const forward = new THREE.Vector3();
+  camera.getWorldDirection(forward);
+  const t = (planeZ - camera.position.z) / forward.z;
+  const center = camera.position.clone().addScaledVector(forward, t);
+  const distance = camera.position.distanceTo(center);
+
+  const vFov = (perspective.fov * Math.PI) / 180;
+  const frameHeight = 2 * Math.tan(vFov / 2) * distance;
+  const frameWidth = frameHeight * (size.width / size.height);
+  const frameAspect = frameWidth / frameHeight;
+
+  const imageAspect = texture.image ? texture.image.width / texture.image.height : frameAspect;
+  if (imageAspect > frameAspect) {
+    texture.repeat.set(frameAspect / imageAspect, 1);
+    texture.offset.set((1 - texture.repeat.x) / 2, 0);
+  } else {
+    texture.repeat.set(1, imageAspect / frameAspect);
+    texture.offset.set(0, (1 - texture.repeat.y) / 2);
+  }
+
+  return (
+    <mesh position={[center.x, center.y, planeZ]}>
+      <planeGeometry args={[frameWidth, frameHeight]} />
+      <meshBasicMaterial map={texture} toneMapped={false} />
+    </mesh>
+  );
+}
 
 function CanvasRegistrar() {
   const gl = useThree((s) => s.gl);
@@ -39,6 +81,7 @@ function CharacterMesh() {
 export function Viewport() {
   const readyVersion = useAppStore((s) => s.readyVersion);
   const stage = useAppStore((s) => s.stage);
+  const backgroundUrl = useAppStore((s) => s.backgroundUrl);
 
   return (
     <div className="viewport">
@@ -49,7 +92,13 @@ export function Viewport() {
         <directionalLight position={[3, 5, 2]} intensity={1.6} castShadow />
         <directionalLight position={[-3, 2, -2]} intensity={0.5} />
         <hemisphereLight args={['#8fa8c9', '#1a1c20', 0.6]} />
-        <Grid infiniteGrid fadeDistance={20} cellColor="#2a2f3a" sectionColor="#3a4150" position={[0, 0, 0]} />
+        {backgroundUrl ? (
+          <Suspense fallback={null}>
+            <Backdrop key={backgroundUrl} url={backgroundUrl} />
+          </Suspense>
+        ) : (
+          <Grid infiniteGrid fadeDistance={20} cellColor="#2a2f3a" sectionColor="#3a4150" position={[0, 0, 0]} />
+        )}
         {stage === 'ready' && readyVersion > 0 && <CharacterMesh key={readyVersion} />}
         <OrbitControls target={[0, 1, 0]} enableDamping dampingFactor={0.1} minDistance={1} maxDistance={10} />
       </Canvas>

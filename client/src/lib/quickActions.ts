@@ -53,4 +53,21 @@ export const QUICK_ACTIONS: { label: string; build: () => SceneTimeline }[] = [
       totalDuration: 5.8,
     }),
   },
+  {
+    // Longer scene, deliberately built without turn_to_face: the rig only has a
+    // front-facing source photo, and rotating the root exposes the mesh's guessed
+    // (and currently unreliable) side/back geometry. Every event here only ever
+    // faces the camera, so it stays clean regardless of source-image angle coverage.
+    label: 'Long walk (no turn)',
+    build: () => ({
+      events: [
+        { id: 'e1', action: 'wave', start: 0, duration: 1.8, params: { hand: 'right' } },
+        { id: 'e2', action: 'walk_to', start: 1.8, duration: 2.5, params: { x: 0, z: 2.5 } },
+        { id: 'e3', action: 'jump', start: 4.3, duration: 1, params: { height: 0.6 } },
+        { id: 'e4', action: 'walk_to', start: 5.3, duration: 2.5, params: { x: 0, z: 0 } },
+        { id: 'e5', action: 'sit', start: 7.8, duration: 1.5, params: {} },
+      ],
+      totalDuration: 9.6,
+    }),
+  },
 ];

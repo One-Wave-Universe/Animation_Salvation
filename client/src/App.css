@@ -105,6 +105,12 @@ main {
   background: #2f333d;
 }
 
+.btn-active {
+  background: rgba(47, 111, 237, 0.18);
+  border: 1px solid rgba(47, 111, 237, 0.5);
+  color: #7ea6f5;
+}
+
 .row {
   display: flex;
   gap: 8px;

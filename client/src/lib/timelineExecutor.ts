@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { SceneTimeline } from '../types';
 import type { AnimatableRig } from './boneHierarchy';
-import { ACTIONS, makeActionContext, type ActionContext } from './actions';
+import { ACTIONS, makeActionContext, poseWalkGait, type ActionContext } from './actions';
 import { poseBone } from './jointConstraints';
 import { sceneRuntime } from './sceneRuntime';
 
@@ -57,6 +57,13 @@ export class TimelineExecutor {
     }
 
     ACTIONS.idle(this.ctx, 1, this.clock, {}, this.stateFor('__idle'));
+
+    // Free-roam WASD/gamepad movement (WorldMovementController) drives this
+    // instead of a scripted timeline event - it needs the same leg/arm gait
+    // every frame movement is held, without a fixed target/duration.
+    if (sceneRuntime.walkGaitElapsed !== null) {
+      poseWalkGait(this.ctx, sceneRuntime.walkGaitElapsed);
+    }
 
     if (this.timeline) {
       for (const event of this.timeline.events) {

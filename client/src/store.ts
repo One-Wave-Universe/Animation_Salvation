@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import type { RigDescription, SceneTimeline } from './types';
+import type { RigDescription, SceneCalibration, ScenePlacement, SceneTimeline } from './types';
 import { sceneRuntime } from './lib/sceneRuntime';
+import { defaultCalibration } from './lib/perspective';
 
 export type PipelineStage = 'idle' | 'loading-image' | 'estimating-depth' | 'building-mesh' | 'building-rig' | 'ready' | 'error';
 export type RenderMode = 'rig3d' | 'photo';
@@ -25,6 +26,14 @@ interface AppState {
   keyLightIntensity: number;
   ambientIntensity: number;
   gamepadConnected: string | null;
+
+  /** Per-background depth/scale calibration. Null until a background's real pixel
+   *  dimensions are known (set once the background texture finishes loading). */
+  sceneCalibration: SceneCalibration | null;
+  /** Where the character's feet are planted in the background, as fractions of its
+   *  pixel dimensions - drives depth-derived scale via sceneCalibration. */
+  scenePlacement: ScenePlacement;
+  showPerspectiveGrid: boolean;
 
   inpaintRegionsCount: number;
   inpaintBusy: boolean;
@@ -56,6 +65,10 @@ interface AppState {
   setKeyLightIntensity: (v: number) => void;
   setAmbientIntensity: (v: number) => void;
   setGamepadConnected: (name: string | null) => void;
+  ensureSceneCalibration: (sceneWidth: number, sceneHeight: number) => void;
+  patchSceneCalibration: (patch: Partial<SceneCalibration>) => void;
+  setScenePlacement: (placement: Partial<ScenePlacement>) => void;
+  setShowPerspectiveGrid: (show: boolean) => void;
   reset: () => void;
 }
 
@@ -79,6 +92,10 @@ export const useAppStore = create<AppState>((set) => ({
   keyLightIntensity: 1.6,
   ambientIntensity: 0.7,
   gamepadConnected: null,
+
+  sceneCalibration: null,
+  scenePlacement: { footX: 0.5, footY: 0.85 },
+  showPerspectiveGrid: false,
 
   inpaintRegionsCount: 0,
   inpaintBusy: false,
@@ -122,6 +139,20 @@ export const useAppStore = create<AppState>((set) => ({
   setKeyLightIntensity: (keyLightIntensity) => set({ keyLightIntensity }),
   setAmbientIntensity: (ambientIntensity) => set({ ambientIntensity }),
   setGamepadConnected: (gamepadConnected) => set({ gamepadConnected }),
+  // Only (re)creates calibration when the background's actual pixel size changes -
+  // an already-matching calibration is left alone so a human's or AI's edits to it
+  // survive re-renders of the same background (e.g. a texture reload).
+  ensureSceneCalibration: (sceneWidth, sceneHeight) =>
+    set((s) => {
+      if (s.sceneCalibration && s.sceneCalibration.sceneWidth === sceneWidth && s.sceneCalibration.sceneHeight === sceneHeight) {
+        return s;
+      }
+      return { sceneCalibration: defaultCalibration(sceneWidth, sceneHeight) };
+    }),
+  patchSceneCalibration: (patch) =>
+    set((s) => (s.sceneCalibration ? { sceneCalibration: { ...s.sceneCalibration, ...patch } } : s)),
+  setScenePlacement: (placement) => set((s) => ({ scenePlacement: { ...s.scenePlacement, ...placement } })),
+  setShowPerspectiveGrid: (showPerspectiveGrid) => set({ showPerspectiveGrid }),
   reset: () =>
     set({
       stage: 'idle',

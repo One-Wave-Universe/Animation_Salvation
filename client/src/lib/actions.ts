@@ -207,7 +207,7 @@ function poseJointBand(ctx: ActionContext, chain: THREE.Bone[], phase: number) {
  * sine" version, and it can't misfire onto an unrelated limb the way
  * hardcoding a "Leg.R" that may not exist would.
  */
-function poseLegs(ctx: ActionContext, phase: number) {
+export function poseLegs(ctx: ActionContext, phase: number) {
   const primary = ctx.jointChain('Leg.L');
   if (primary.length === 0) return;
   poseJointBand(ctx, primary, phase);
@@ -215,6 +215,27 @@ function poseLegs(ctx: ActionContext, phase: number) {
   const primaryIds = new Set(primary.map((b) => b.userData.rigId));
   const secondary = ctx.findByPrefix('Leg').filter((b) => !primaryIds.has(b.userData.rigId));
   if (secondary.length > 0) poseJointBand(ctx, secondary, phase + Math.PI);
+}
+
+/**
+ * The walk gait's leg/arm/bob motion, factored out of walkTo() so free-roam world
+ * movement (WorldMovementController - real WASD/gamepad translation of the
+ * character's group, not a scripted point-to-point action) can drive the same
+ * procedural gait every frame it's moving. Deliberately excludes walkTo's own
+ * root-bone position lerp toward a fixed target - world movement already places
+ * the character via real 3D translation, so re-adding a position offset here
+ * would double-move it.
+ */
+export function poseWalkGait(ctx: ActionContext, elapsed: number) {
+  const stride = Math.sin(elapsed * 8);
+  ctx.runtime.rootBone.position.y += Math.abs(Math.cos(elapsed * 8)) * 0.045;
+  ctx.runtime.rootBone.rotation.z = stride * 0.035;
+  poseLegs(ctx, elapsed * 8);
+  const arms = [...ctx.findByPrefix('Arm.L'), ...ctx.findByPrefix('Arm.R')];
+  arms.forEach((bone, i) => {
+    const phase = i % 2 === 0 ? -stride : stride;
+    setLocalEuler(ctx, bone, phase * 0.3, 0, 0);
+  });
 }
 
 const walkTo: ActionFn = (ctx, t, elapsed, params, state) => {
@@ -228,23 +249,10 @@ const walkTo: ActionFn = (ctx, t, elapsed, params, state) => {
     ctx.runtime.rootBone.rotation.y = Math.atan2(dir.x, dir.z);
   }
 
-  const stride = Math.sin(elapsed * 8);
   // The lerp above pins position.y to a single captured value for the whole
-  // action, so without this the walk has no vertical motion at all - every
-  // step lands perfectly flat. Real gait dips slightly at each foot plant,
-  // twice per stride cycle, so this runs at double the leg-swing frequency.
-  ctx.runtime.rootBone.position.y += Math.abs(Math.cos(elapsed * 8)) * 0.045;
-  ctx.runtime.rootBone.rotation.z = stride * 0.035;
-  poseLegs(ctx, elapsed * 8);
-  // The bare 'Arm' prefix would also match any spurious numbered top-level
-  // duplicate the auto-rig classifier produced (e.g. "Arm.R6" turning out to
-  // be a piece of an ear, not a second right arm) - explicitly union just
-  // the two real arms instead, same fix as wave()'s findByPrefix('Arm.R').
-  const arms = [...ctx.findByPrefix('Arm.L'), ...ctx.findByPrefix('Arm.R')];
-  arms.forEach((bone, i) => {
-    const phase = i % 2 === 0 ? -stride : stride;
-    setLocalEuler(ctx, bone, phase * 0.3, 0, 0);
-  });
+  // action, so without poseWalkGait's own y-bob the walk would have no vertical
+  // motion at all - every step landing perfectly flat.
+  poseWalkGait(ctx, elapsed);
 };
 
 const turnToFace: ActionFn = (ctx, t, _elapsed, params, state) => {

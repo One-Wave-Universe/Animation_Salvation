@@ -43,7 +43,15 @@ export function computeImageToModelTransform(mask: Uint8Array, depth: Float32Arr
 
   return {
     scale,
-    toModelXY: (px, py) => [(px - (minX + bboxW / 2)) * scale, -(py - (minY + bboxH / 2)) * scale],
+    // y=0 is the bottom of the mask bbox (the character's feet), not the bbox's
+    // vertical center. The scene's ground plane is y=0 (see Viewport.tsx placing
+    // the character group at [0,0,0], and ContactBlob just above it) - the character
+    // must be anchored there directly, not centered-then-nudged by a fixed offset
+    // that only happens to cancel out for a portrait-aspect (taller-than-wide) pose.
+    // A wider pose (arms spread, crouching) would scale to a shorter bbox height and
+    // visibly float above/sink into the ground under the old center+fixed-offset
+    // scheme; anchoring at the true foot position keeps every pose's feet at y=0.
+    toModelXY: (px, py) => [(px - (minX + bboxW / 2)) * scale, (maxY - py) * scale],
     depthAt: (px, py) => bilinearSample(depth, width, height, px, py),
   };
 }

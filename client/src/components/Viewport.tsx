@@ -6,6 +6,35 @@ import * as THREE from 'three';
 import { useAppStore } from '../store';
 import { sceneRuntime } from '../lib/sceneRuntime';
 import { GamepadJointControl } from './GamepadJointControl';
+import { WorldMovementController } from './WorldMovementController';
+
+export const BACKDROP_PLANE_Z = -6;
+
+const UP_AXIS = new THREE.Vector3(0, 1, 0);
+const tmpQuat = new THREE.Quaternion();
+const FACING_SMOOTH_TAU = 0.12;
+
+/**
+ * The world-space rectangle the backdrop image currently fills, found by
+ * intersecting the camera's true forward ray with the plane (accounts for the
+ * camera's tilt, not just raw z-distance) so it always exactly fills the frame.
+ * Shared between the Backdrop mesh itself and character scene-placement, so a
+ * character "standing" on a background pixel stays visually locked to that pixel
+ * even as the (debug) camera orbits - both derive from the same live camera state.
+ */
+function computeBackdropFrame(camera: THREE.Camera, size: { width: number; height: number }, planeZ: number) {
+  const perspective = camera as THREE.PerspectiveCamera;
+  const forward = new THREE.Vector3();
+  camera.getWorldDirection(forward);
+  const t = (planeZ - camera.position.z) / forward.z;
+  const center = camera.position.clone().addScaledVector(forward, t);
+  const distance = camera.position.distanceTo(center);
+
+  const vFov = (perspective.fov * Math.PI) / 180;
+  const frameHeight = 2 * Math.tan(vFov / 2) * distance;
+  const frameWidth = frameHeight * (size.width / size.height);
+  return { center, frameWidth, frameHeight, frameAspect: frameWidth / frameHeight };
+}
 
 /**
  * A soft radial-gradient blob under the character's feet - grounds him against
@@ -52,19 +81,14 @@ function ContactBlob() {
 function Backdrop({ url }: { url: string }) {
   const texture = useLoader(THREE.TextureLoader, url);
   const { camera, size } = useThree();
-  const planeZ = -6;
-  const perspective = camera as THREE.PerspectiveCamera;
+  const planeZ = BACKDROP_PLANE_Z;
+  const ensureSceneCalibration = useAppStore((s) => s.ensureSceneCalibration);
 
-  const forward = new THREE.Vector3();
-  camera.getWorldDirection(forward);
-  const t = (planeZ - camera.position.z) / forward.z;
-  const center = camera.position.clone().addScaledVector(forward, t);
-  const distance = camera.position.distanceTo(center);
+  useEffect(() => {
+    if (texture.image) ensureSceneCalibration(texture.image.width, texture.image.height);
+  }, [texture, ensureSceneCalibration]);
 
-  const vFov = (perspective.fov * Math.PI) / 180;
-  const frameHeight = 2 * Math.tan(vFov / 2) * distance;
-  const frameWidth = frameHeight * (size.width / size.height);
-  const frameAspect = frameWidth / frameHeight;
+  const { center, frameWidth, frameHeight, frameAspect } = computeBackdropFrame(camera, size, planeZ);
 
   const imageAspect = texture.image ? texture.image.width / texture.image.height : frameAspect;
   if (imageAspect > frameAspect) {
@@ -83,14 +107,56 @@ function Backdrop({ url }: { url: string }) {
   );
 }
 
+/**
+ * A real, solid, walkable floor at y=0 - present whether or not a background is
+ * loaded, so the character always has actual 3D ground to move across rather
+ * than an implied one. Kept visually neutral (dark, matte) since it's meant to
+ * ground the character physically, not compete with either the debug grid lines
+ * or a painted backdrop's own perspective.
+ */
+function Ground() {
+  return (
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
+      <planeGeometry args={[200, 200]} />
+      <meshStandardMaterial color="#1c1f26" roughness={0.95} metalness={0} />
+    </mesh>
+  );
+}
+
+/** Keeps OrbitControls' target locked onto the character's current world position
+ *  every frame, so a human free-orbiting the camera still has the character stay
+ *  framed as WASD/gamepad movement carries them around the ground plane - a
+ *  proper "game camera" follow instead of the character walking out of frame. */
+const tmpFollowTarget = new THREE.Vector3();
+
+function CameraFollow({ controlsRef }: { controlsRef: RefObject<OrbitControlsImpl | null> }) {
+  useFrame(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+    tmpFollowTarget.copy(sceneRuntime.worldPosition);
+    tmpFollowTarget.y += 0.9;
+    controls.target.lerp(tmpFollowTarget, 0.08);
+    controls.update();
+  });
+  return null;
+}
+
 function CanvasRegistrar() {
   const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  const camera = useThree((s) => s.camera);
   useEffect(() => {
     sceneRuntime.canvas = gl.domElement;
+    sceneRuntime.gl = gl;
+    sceneRuntime.threeScene = scene;
+    sceneRuntime.threeCamera = camera;
     return () => {
       sceneRuntime.canvas = null;
+      sceneRuntime.gl = null;
+      sceneRuntime.threeScene = null;
+      sceneRuntime.threeCamera = null;
     };
-  }, [gl]);
+  }, [gl, scene, camera]);
   return null;
 }
 
@@ -165,11 +231,35 @@ function CharacterMesh() {
     if (wireframeRef.current) wireframeRef.current.visible = showWireframe;
   }, [showWireframe]);
 
+  const facingQuatRef = useRef(new THREE.Quaternion());
+
   useFrame((_, delta) => {
     sceneRuntime.executor?.update(Math.min(delta, 0.05));
+
+    const group = groupRef.current;
+    if (!group) return;
+    // Real 3D placement: WorldMovementController writes sceneRuntime.worldPosition/
+    // worldFacing every frame from WASD/gamepad input. y stays 0 - the ground plane
+    // - since character-space y=0 is already the true foot position (see
+    // computeImageToModelTransform in meshBuilder.ts). Scale is always 1: apparent
+    // size comes from the camera's own perspective projection at whatever distance
+    // the character actually is, not a hand-authored depth curve.
+    group.position.copy(sceneRuntime.worldPosition);
+    group.scale.set(1, 1, 1);
+    const targetQuat = tmpQuat.setFromAxisAngle(UP_AXIS, sceneRuntime.worldFacing);
+    facingQuatRef.current.slerp(targetQuat, 1 - Math.exp(-delta / FACING_SMOOTH_TAU));
+    group.quaternion.copy(facingQuatRef.current);
   });
 
-  return <group ref={groupRef} position={[0, 1, 0]} />;
+  // ContactBlob lives inside this group (not as a scene-level sibling) specifically
+  // so it inherits the group's dynamic position/scale from the block above - a
+  // shadow that stayed fixed in world space while the character shrank and moved
+  // toward the horizon would visibly detach from the character's feet.
+  return (
+    <group ref={groupRef}>
+      <ContactBlob />
+    </group>
+  );
 }
 
 const CAMERA_PRESETS: Record<string, { position: [number, number, number]; target: [number, number, number] }> = {
@@ -221,11 +311,13 @@ export function Viewport() {
       <Canvas shadows camera={{ position: [0, 1.6, 5.6], fov: 40 }} gl={{ preserveDrawingBuffer: true }}>
         <CanvasRegistrar />
         <CameraPresetHandler controlsRef={orbitControlsRef} />
+        <CameraFollow controlsRef={orbitControlsRef} />
         <color attach="background" args={['#14171c']} />
         <ambientLight intensity={ambientIntensity} />
         <directionalLight position={[3, 5, 2]} intensity={keyLightIntensity} castShadow />
         <directionalLight position={[-3, 2, -2]} intensity={0.5} />
         <hemisphereLight args={['#8fa8c9', '#1a1c20', 0.6]} />
+        <Ground />
         {backgroundUrl ? (
           <Suspense fallback={null}>
             <Backdrop key={backgroundUrl} url={backgroundUrl} />
@@ -236,8 +328,8 @@ export function Viewport() {
         {stage === 'ready' && readyVersion > 0 && (
           <>
             <CharacterMesh key={readyVersion} />
-            <ContactBlob />
             <GamepadJointControl />
+            <WorldMovementController />
           </>
         )}
         <OrbitControls ref={orbitControlsRef} target={[0, 0.8, 0]} enableDamping dampingFactor={0.1} minDistance={1} maxDistance={10} />

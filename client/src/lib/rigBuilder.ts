@@ -273,6 +273,36 @@ function normalize(a: [number, number, number]): [number, number, number] {
  * hip, which then forks into two legs), each fork gets its own L/R decision relative
  * to *that* fork point, rather than inheriting one label for the whole subtree.
  */
+type BodyPartCategory = 'Head' | 'Leg' | 'Arm' | 'Limb';
+
+/**
+ * What kind of body part does this branch look like, judged from `originPos`
+ * (the point it forks off from) rather than the ultimate root - a sub-fork
+ * needs to be judged on its own local geometry, not the whole trunk it
+ * happens to hang off of. See the recursive re-classification in nameChain.
+ */
+function classifyBranch(
+  branchId: number,
+  originPos: [number, number, number],
+  childrenOf: Map<number, number[]>,
+  modelPos: Map<number, [number, number, number]>,
+): { category: BodyPartCategory; dx: number } {
+  const tip = deepestDescendant(branchId, childrenOf);
+  const tipPos = modelPos.get(tip) ?? modelPos.get(branchId)!;
+  const dx = tipPos[0] - originPos[0];
+  const dy = tipPos[1] - originPos[1];
+  // How far *any* node in this branch gets from its origin - not joint count.
+  // A detailed head (ears, glasses, snout) can easily out-joint a real arm
+  // (2-3 bones) while staying anatomically compact; a chain that's merely
+  // deep isn't the same as a chain that reaches far.
+  const reach = subtreeMaxReach(branchId, childrenOf, modelPos, originPos);
+
+  if (dy > 0.15 && Math.abs(dx) < 0.35 && reach < 0.5) return { category: 'Head', dx };
+  if (dy < -0.25) return { category: 'Leg', dx };
+  if (Math.abs(dx) > 0.2) return { category: 'Arm', dx };
+  return { category: 'Limb', dx };
+}
+
 function assignNames(
   rootId: number,
   childrenOf: Map<number, number[]>,
@@ -284,35 +314,18 @@ function assignNames(
   const rootPos = modelPos.get(rootId)!;
 
   const directChildren = childrenOf.get(rootId) ?? [];
-  let armCount = 0;
-  let legCount = 0;
-  let limbCount = 0;
+  // Shared across the whole tree (not just root's direct children) so a limb
+  // rediscovered deeper down via re-classification (see nameChain) still gets
+  // a unique index instead of colliding with one found at the top level.
+  const counters = { armCount: 0, legCount: 0, limbCount: 0 };
 
   for (const childId of directChildren) {
-    const tip = deepestDescendant(childId, childrenOf);
-    const tipPos = modelPos.get(tip) ?? modelPos.get(childId)!;
-    const dx = tipPos[0] - rootPos[0];
-    const dy = tipPos[1] - rootPos[1];
-    const depthCount = chainLength(childId, childrenOf);
-
+    const { category, dx } = classifyBranch(childId, rootPos, childrenOf, modelPos);
     // Top-level Arm.L / Arm.R / Leg.L / Leg.R naming is a contract the procedural
     // action library (actions.ts) relies on via findByPrefix — keep the L/R suffix
     // at this level even though deeper re-forks (below) use position-relative L/R too.
-    let base: string;
-    if (dy > 0.15 && Math.abs(dx) < 0.35 && depthCount <= 2) {
-      base = 'Head';
-    } else if (dy < -0.25) {
-      legCount++;
-      base = `Leg.${dx <= 0 ? 'L' : 'R'}${legCount > 1 ? legCount : ''}`;
-    } else if (Math.abs(dx) > 0.2) {
-      armCount++;
-      base = `Arm.${dx <= 0 ? 'L' : 'R'}${armCount > 1 ? armCount : ''}`;
-    } else {
-      limbCount++;
-      base = `Limb${limbCount}`;
-    }
-
-    nameChain(childId, base, childrenOf, names, modelPos, 1);
+    const base = labelFor(category, dx, counters);
+    nameChain(childId, base, childrenOf, names, modelPos, 1, counters);
   }
 
   // Any node not yet named (shouldn't normally happen) gets a generic fallback.
@@ -330,6 +343,27 @@ function assignNames(
   return names;
 }
 
+function labelFor(category: BodyPartCategory, dx: number, counters: { armCount: number; legCount: number; limbCount: number }): string {
+  if (category === 'Head') return 'Head';
+  if (category === 'Leg') {
+    counters.legCount++;
+    return `Leg.${dx <= 0 ? 'L' : 'R'}${counters.legCount > 1 ? counters.legCount : ''}`;
+  }
+  if (category === 'Arm') {
+    counters.armCount++;
+    return `Arm.${dx <= 0 ? 'L' : 'R'}${counters.armCount > 1 ? counters.armCount : ''}`;
+  }
+  counters.limbCount++;
+  return `Limb${counters.limbCount}`;
+}
+
+function categoryOfBase(base: string): BodyPartCategory {
+  if (base.startsWith('Head')) return 'Head';
+  if (base.startsWith('Leg')) return 'Leg';
+  if (base.startsWith('Arm')) return 'Arm';
+  return 'Limb';
+}
+
 function nameChain(
   id: number,
   base: string,
@@ -337,31 +371,40 @@ function nameChain(
   names: Map<number, string>,
   modelPos: Map<number, [number, number, number]>,
   depth: number,
+  counters: { armCount: number; legCount: number; limbCount: number },
 ) {
   const label = depth === 1 ? base : `${base}.${depth}`;
   const kids = childrenOf.get(id) ?? [];
 
   if (kids.length >= 2) {
     // Re-fork: this node is itself a branch point further down the chain (e.g. a hip
-    // under a single "legs" branch). Each child becomes its own L/R sub-branch so two
-    // different bones never collide on the same name — including when noise produces
-    // more than two children at one fork, where plain L/R alone would still collide.
+    // under a single "legs" branch, or - as found on a real test character - a head
+    // with ears/glasses/snout detail hanging off what looked like one long "arm" from
+    // the root). Each child is re-classified from *this* fork's own local geometry
+    // rather than blindly inheriting the parent's category: a trunk being arm-shaped
+    // overall doesn't mean everything branching off it is an arm.
     names.set(id, label);
     const pos = modelPos.get(id)!;
+    const inherited = categoryOfBase(base);
     const sideCounts = new Map<string, number>();
     for (const kid of kids) {
+      const { category, dx: localDx } = classifyBranch(kid, pos, childrenOf, modelPos);
+      if (category !== 'Limb' && category !== inherited) {
+        nameChain(kid, labelFor(category, localDx, counters), childrenOf, names, modelPos, 1, counters);
+        continue;
+      }
       const kidPos = modelPos.get(kid) ?? pos;
       const side = kidPos[0] <= pos[0] ? 'L' : 'R';
       const n = (sideCounts.get(side) ?? 0) + 1;
       sideCounts.set(side, n);
       const sideLabel = n > 1 ? `${side}${n}` : side;
-      nameChain(kid, `${base}.${sideLabel}`, childrenOf, names, modelPos, 1);
+      nameChain(kid, `${base}.${sideLabel}`, childrenOf, names, modelPos, 1, counters);
     }
     return;
   }
 
   names.set(id, label);
-  for (const kid of kids) nameChain(kid, base, childrenOf, names, modelPos, depth + 1);
+  for (const kid of kids) nameChain(kid, base, childrenOf, names, modelPos, depth + 1, counters);
 }
 
 function deepestDescendant(id: number, childrenOf: Map<number, number[]>): number {
@@ -370,8 +413,17 @@ function deepestDescendant(id: number, childrenOf: Map<number, number[]>): numbe
   return deepestDescendant(kids[0], childrenOf);
 }
 
-function chainLength(id: number, childrenOf: Map<number, number[]>): number {
-  const kids = childrenOf.get(id) ?? [];
-  if (kids.length === 0) return 1;
-  return 1 + Math.max(...kids.map((k) => chainLength(k, childrenOf)));
+/** Max Euclidean distance from `origin` to any node in this subtree - see assignNames. */
+function subtreeMaxReach(
+  id: number,
+  childrenOf: Map<number, number[]>,
+  modelPos: Map<number, [number, number, number]>,
+  origin: [number, number, number],
+): number {
+  const p = modelPos.get(id)!;
+  let maxDist = Math.hypot(p[0] - origin[0], p[1] - origin[1], p[2] - origin[2]);
+  for (const kid of childrenOf.get(id) ?? []) {
+    maxDist = Math.max(maxDist, subtreeMaxReach(kid, childrenOf, modelPos, origin));
+  }
+  return maxDist;
 }

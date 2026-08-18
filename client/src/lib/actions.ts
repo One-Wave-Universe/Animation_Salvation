@@ -9,9 +9,17 @@ export interface ActionContext {
 }
 
 export function makeActionContext(runtime: AnimatableRig): ActionContext {
+  // Matches `prefix` itself and any real sub-chain of it ("Arm.R" -> also
+  // "Arm.R.2", "Arm.R.L3", ...), but *not* an unrelated numbered sibling
+  // ("Arm.R6") that the auto-rig classifier found elsewhere and just
+  // happens to share the same textual prefix. Every generated sub-chain
+  // label always has a "." right after its base (see rigBuilder.ts's
+  // labelFor/nameChain); only a fresh top-level duplicate glues a bare
+  // number straight onto the base, which a plain startsWith can't tell
+  // apart from a genuine child joint.
   const findByPrefix = (prefix: string) =>
     runtime.rig.bones
-      .filter((b) => b.name.startsWith(prefix))
+      .filter((b) => b.name === prefix || b.name.startsWith(`${prefix}.`))
       .map((b) => runtime.boneById.get(b.id)!)
       .filter(Boolean);
   return { runtime, findByPrefix };
@@ -32,18 +40,19 @@ function setLocalEuler(ctx: ActionContext, bone: THREE.Bone, x: number, y: numbe
   poseBone(bone, boneDesc(ctx.runtime, bone), q);
 }
 
+// Deliberately root-only: this runs every single frame regardless of what
+// action is playing, so anything it touches has to be trustworthy on *any*
+// auto-rig, not just a clean one. An earlier version also swayed
+// findByPrefix('Arm')/('Head') for a bit of idle life, but on a rig where
+// the classifier mis-splits a detailed head into several small "Arm.L2" /
+// "Arm.R6" sub-branches (a real case - see rigBuilder.ts's classifyBranch),
+// that meant continuously animating stray pieces of the face, every frame,
+// forever - a constant low-level jitter that read as "rubbery," not alive.
+// Root motion moves the whole character rigidly, so it can't cause that.
 const idle: ActionFn = (ctx, _t, elapsed) => {
   const root = ctx.runtime.rootBone;
   root.position.y += Math.sin(elapsed * 1.6) * 0.015;
   root.rotation.z = Math.sin(elapsed * 1.1) * 0.02;
-  for (const bone of ctx.findByPrefix('Arm')) {
-    setLocalEuler(ctx, bone, Math.sin(elapsed * 1.3 + bone.name.length) * 0.03, 0, 0);
-  }
-  // Slow head sway/nod, out of phase with the body bob - reads as breathing/
-  // looking-around rather than a perfectly still mannequin.
-  for (const bone of ctx.findByPrefix('Head')) {
-    setLocalEuler(ctx, bone, Math.sin(elapsed * 0.9) * 0.025, Math.sin(elapsed * 0.55 + 1) * 0.02, 0);
-  }
 };
 
 const lookAt: ActionFn = (ctx, t, _elapsed, params) => {
@@ -136,7 +145,11 @@ const walkTo: ActionFn = (ctx, t, elapsed, params, state) => {
     const phase = i % 2 === 0 ? stride : -stride;
     setLocalEuler(ctx, bone, phase * 0.5, 0, 0);
   });
-  const arms = ctx.findByPrefix('Arm');
+  // The bare 'Arm' prefix would also match any spurious numbered top-level
+  // duplicate the auto-rig classifier produced (e.g. "Arm.R6" turning out to
+  // be a piece of an ear, not a second right arm) - explicitly union just
+  // the two real arms instead, same fix as wave()'s findByPrefix('Arm.R').
+  const arms = [...ctx.findByPrefix('Arm.L'), ...ctx.findByPrefix('Arm.R')];
   arms.forEach((bone, i) => {
     const phase = i % 2 === 0 ? -stride : stride;
     setLocalEuler(ctx, bone, phase * 0.3, 0, 0);

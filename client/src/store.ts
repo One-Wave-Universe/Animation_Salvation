@@ -18,6 +18,14 @@ interface AppState {
   readyVersion: number;
   backgroundUrl: string | null;
 
+  showSkeleton: boolean;
+  showWireframe: boolean;
+  selectedBoneId: string | null;
+  cameraPresetRequest: string | null;
+  keyLightIntensity: number;
+  ambientIntensity: number;
+  gamepadConnected: string | null;
+
   inpaintRegionsCount: number;
   inpaintBusy: boolean;
   inpaintProgress: { done: number; total: number } | null;
@@ -40,6 +48,14 @@ interface AppState {
   setInpaintDone: (done: boolean) => void;
   setInpaintError: (message: string | null) => void;
   setBackgroundUrl: (url: string | null) => void;
+  setShowSkeleton: (show: boolean) => void;
+  setShowWireframe: (show: boolean) => void;
+  setSelectedBoneId: (id: string | null) => void;
+  requestCameraPreset: (preset: string) => void;
+  clearCameraPresetRequest: () => void;
+  setKeyLightIntensity: (v: number) => void;
+  setAmbientIntensity: (v: number) => void;
+  setGamepadConnected: (name: string | null) => void;
   reset: () => void;
 }
 
@@ -55,6 +71,14 @@ export const useAppStore = create<AppState>((set) => ({
   directorError: null,
   readyVersion: 0,
   backgroundUrl: null,
+
+  showSkeleton: false,
+  showWireframe: false,
+  selectedBoneId: null,
+  cameraPresetRequest: null,
+  keyLightIntensity: 1.6,
+  ambientIntensity: 0.7,
+  gamepadConnected: null,
 
   inpaintRegionsCount: 0,
   inpaintBusy: false,
@@ -90,6 +114,14 @@ export const useAppStore = create<AppState>((set) => ({
   setInpaintDone: (inpaintDone) => set({ inpaintDone }),
   setInpaintError: (inpaintError) => set({ inpaintError }),
   setBackgroundUrl: (backgroundUrl) => set({ backgroundUrl }),
+  setShowSkeleton: (showSkeleton) => set({ showSkeleton }),
+  setShowWireframe: (showWireframe) => set({ showWireframe }),
+  setSelectedBoneId: (selectedBoneId) => set({ selectedBoneId }),
+  requestCameraPreset: (cameraPresetRequest) => set({ cameraPresetRequest }),
+  clearCameraPresetRequest: () => set({ cameraPresetRequest: null }),
+  setKeyLightIntensity: (keyLightIntensity) => set({ keyLightIntensity }),
+  setAmbientIntensity: (ambientIntensity) => set({ ambientIntensity }),
+  setGamepadConnected: (gamepadConnected) => set({ gamepadConnected }),
   reset: () =>
     set({
       stage: 'idle',

@@ -6,6 +6,9 @@ import { QuickActionsPanel } from './components/QuickActionsPanel';
 import { DirectorPanel } from './components/DirectorPanel';
 import { ExportPanel } from './components/ExportPanel';
 import { SavedCharactersPanel } from './components/SavedCharactersPanel';
+import { CameraControls } from './components/CameraControls';
+import { LightingControls } from './components/LightingControls';
+import { GamepadStatus } from './components/GamepadStatus';
 import { Viewport } from './components/Viewport';
 import './App.css';
 
@@ -22,6 +25,9 @@ function App() {
           <BackgroundPanel />
           <SavedCharactersPanel />
           <RigEditor />
+          <CameraControls />
+          <LightingControls />
+          <GamepadStatus />
           <InpaintPanel />
           <QuickActionsPanel />
           <DirectorPanel />

@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import type { SceneTimeline } from '../types';
 import type { AnimatableRig } from './boneHierarchy';
 import { ACTIONS, makeActionContext, type ActionContext } from './actions';
+import { poseBone } from './jointConstraints';
+import { sceneRuntime } from './sceneRuntime';
 
 // How quickly the rendered pose catches up to the raw target pose, in seconds.
 // Bind-pose resets and hard cuts between actions produce an instantaneous
@@ -67,7 +69,29 @@ export class TimelineExecutor {
       }
     }
 
+    this.applyManualOverrides();
     this.smoothPose(deltaSeconds);
+  }
+
+  /**
+   * Gamepad-driven joint posing (GamepadJointControl.tsx writes into
+   * sceneRuntime.manualBoneOverrides). Runs after idle/actions so manual
+   * control wins over whatever's playing, and through poseBone so a ball
+   * joint still respects its cone limit and a hinge still respects its axis
+   * and range - the same constraints every other action is subject to,
+   * not a bypass. Runs before smoothPose so manual input gets the same
+   * catch-up damping as everything else instead of snapping frame to frame.
+   */
+  private applyManualOverrides() {
+    if (sceneRuntime.manualBoneOverrides.size === 0) return;
+    const q = new THREE.Quaternion();
+    for (const [boneId, euler] of sceneRuntime.manualBoneOverrides) {
+      const bone = this.ctx.runtime.boneById.get(boneId);
+      const desc = this.ctx.runtime.rig.bones.find((b) => b.id === boneId);
+      if (!bone || !desc || desc.jointType === 'root') continue;
+      q.setFromEuler(euler);
+      poseBone(bone, desc, q);
+    }
   }
 
   /**

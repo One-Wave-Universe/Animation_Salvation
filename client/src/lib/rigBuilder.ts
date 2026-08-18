@@ -20,7 +20,20 @@ export function buildRig(
   }
 
   const rawNodes: RawNode[] = graph.nodes.map((n) => ({ id: n.id, px: n.px, py: n.py }));
-  let nextId = rawNodes.length;
+  // Must be one past the highest id actually IN USE, not rawNodes.length. Node ids
+  // come from skeletonize.ts's extraction order and are never renumbered after nodes
+  // are pruned there (pruneNoise/capBoneCount both just filter the array), so the
+  // surviving ids are sparse - e.g. {3, 4, ..., 76, 79, 80} with only ~60 nodes total
+  // but ids reaching past 140. Using rawNodes.length (the *count*) as the next id to
+  // hand out collided with real surviving ids like 79 here: a freshly-interpolated
+  // point got id 79 while an unrelated original junction node already legitimately
+  // owned that id. Both then existed under the same key - the node's adjacency list
+  // silently merged both nodes' real neighbors, while its position (looked up via a
+  // Map, last write wins) became only one of them - producing a single bone whose
+  // topology said "connected near the torso" and "connected near the feet" at once:
+  // a bone spanning nearly the whole character's height, found via numeric bone-
+  // segment-length auditing (this is what read as a "floating skeleton mass").
+  let nextId = rawNodes.reduce((max, n) => Math.max(max, n.id), -1) + 1;
   const adjacency = new Map<number, number[]>();
   const link = (a: number, b: number) => {
     if (!adjacency.has(a)) adjacency.set(a, []);

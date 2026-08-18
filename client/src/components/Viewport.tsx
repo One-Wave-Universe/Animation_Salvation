@@ -1,9 +1,11 @@
-import { Suspense, useEffect, useMemo, useRef } from 'react';
+import { Suspense, useEffect, useMemo, useRef, type RefObject } from 'react';
 import { Canvas, useFrame, useThree, useLoader } from '@react-three/fiber';
 import { OrbitControls, Grid } from '@react-three/drei';
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import * as THREE from 'three';
 import { useAppStore } from '../store';
 import { sceneRuntime } from '../lib/sceneRuntime';
+import { GamepadJointControl } from './GamepadJointControl';
 
 /**
  * A soft radial-gradient blob under the character's feet - grounds him against
@@ -94,16 +96,74 @@ function CanvasRegistrar() {
 
 function CharacterMesh() {
   const groupRef = useRef<THREE.Group>(null);
+  const helperRef = useRef<THREE.SkeletonHelper | null>(null);
+  const wireframeRef = useRef<THREE.LineSegments | null>(null);
+  const showSkeleton = useAppStore((s) => s.showSkeleton);
+  const showWireframe = useAppStore((s) => s.showWireframe);
+  const scene = useThree((s) => s.scene);
 
   useEffect(() => {
     const group = groupRef.current;
     const obj = sceneRuntime.renderObject;
     if (!group || !obj) return;
     group.add(obj);
+    // SkeletonHelper draws a bone from every Bone's position to its parent's -
+    // exactly the "wire mesh" skeleton view: every joint, from any angle,
+    // independent of whatever the skin mesh itself is doing. It has to be added
+    // to the SCENE, not to `group` (this character's own [0,1,0]-offset parent):
+    // three.js's SkeletonHelper sets its own `.matrix` to the target object's
+    // *already-world-space* `.matrixWorld` (see its constructor), specifically so
+    // it can be dropped in at the scene root. Parenting it under `group` instead
+    // applies that same [0,1,0] offset a second time on top of the one already
+    // baked into `obj.matrixWorld` - confirmed by reading the helper's own
+    // matrixWorld back out (translation (0,2,0), not (0,1,0)) - which is what
+    // read as a "floating skeleton" hovering a full body-height above the head.
+    const helper = new THREE.SkeletonHelper(obj);
+    helper.visible = false;
+    scene.add(helper);
+    helperRef.current = helper;
+
+    // Toggling material.wireframe directly on the skinned mesh - even set
+    // at material construction time, before ever rendering - never showed
+    // any visible lines on this mesh, only a solid fill; a plain opaque
+    // MeshBasicMaterial isolated the same way had the identical result, so
+    // it wasn't the texture/alphaTest/transparency either. Whatever the
+    // cause, an explicit WireframeGeometry + LineSegments overlay is the
+    // standard, more reliable way to get a wireframe view in three.js and
+    // sidesteps it entirely. Bind-pose only (doesn't track animation - the
+    // overlay is a snapshot of the base geometry, not itself skinned) but
+    // that's enough to inspect mesh topology/density from any angle, which
+    // is the actual goal.
+    let wireframe: THREE.LineSegments | null = null;
+    if (obj instanceof THREE.SkinnedMesh) {
+      const wireGeo = new THREE.WireframeGeometry(obj.geometry);
+      wireframe = new THREE.LineSegments(wireGeo, new THREE.LineBasicMaterial({ color: 0x5fe3a3, transparent: true, opacity: 0.6 }));
+      wireframe.visible = false;
+      group.add(wireframe);
+      wireframeRef.current = wireframe;
+    }
+
     return () => {
       group.remove(obj);
+      scene.remove(helper);
+      helper.dispose();
+      helperRef.current = null;
+      if (wireframe) {
+        group.remove(wireframe);
+        wireframe.geometry.dispose();
+        (wireframe.material as THREE.Material).dispose();
+        wireframeRef.current = null;
+      }
     };
-  }, []);
+  }, [scene]);
+
+  useEffect(() => {
+    if (helperRef.current) helperRef.current.visible = showSkeleton;
+  }, [showSkeleton]);
+
+  useEffect(() => {
+    if (wireframeRef.current) wireframeRef.current.visible = showWireframe;
+  }, [showWireframe]);
 
   useFrame((_, delta) => {
     sceneRuntime.executor?.update(Math.min(delta, 0.05));
@@ -112,10 +172,45 @@ function CharacterMesh() {
   return <group ref={groupRef} position={[0, 1, 0]} />;
 }
 
+const CAMERA_PRESETS: Record<string, { position: [number, number, number]; target: [number, number, number] }> = {
+  front: { position: [0, 1.6, 5.6], target: [0, 0.8, 0] },
+  threeQuarter: { position: [3.6, 1.8, 4.2], target: [0, 0.9, 0] },
+  side: { position: [5.4, 1.6, 0], target: [0, 0.9, 0] },
+  back: { position: [0, 1.6, -5.6], target: [0, 0.8, 0] },
+  top: { position: [0.01, 6, 0.01], target: [0, 0.5, 0] },
+  closeUp: { position: [0, 1.5, 1.8], target: [0, 1.4, 0] },
+};
+
+/** Applies a requested camera preset (see CameraControls.tsx) directly to the
+ *  live camera + OrbitControls target, then clears the request. Lives inside
+ *  the Canvas since it needs the real camera/controls instances, not just
+ *  the store values a sibling UI panel can see. */
+function CameraPresetHandler({ controlsRef }: { controlsRef: RefObject<OrbitControlsImpl | null> }) {
+  const camera = useThree((s) => s.camera);
+  const cameraPresetRequest = useAppStore((s) => s.cameraPresetRequest);
+  const clearCameraPresetRequest = useAppStore((s) => s.clearCameraPresetRequest);
+
+  useEffect(() => {
+    if (!cameraPresetRequest) return;
+    const preset = CAMERA_PRESETS[cameraPresetRequest];
+    if (preset) {
+      camera.position.set(...preset.position);
+      controlsRef.current?.target.set(...preset.target);
+      controlsRef.current?.update();
+    }
+    clearCameraPresetRequest();
+  }, [cameraPresetRequest, camera, controlsRef, clearCameraPresetRequest]);
+
+  return null;
+}
+
 export function Viewport() {
   const readyVersion = useAppStore((s) => s.readyVersion);
   const stage = useAppStore((s) => s.stage);
   const backgroundUrl = useAppStore((s) => s.backgroundUrl);
+  const keyLightIntensity = useAppStore((s) => s.keyLightIntensity);
+  const ambientIntensity = useAppStore((s) => s.ambientIntensity);
+  const orbitControlsRef = useRef<OrbitControlsImpl | null>(null);
 
   return (
     <div className="viewport">
@@ -125,9 +220,10 @@ export function Viewport() {
           the user manually zoomed out. */}
       <Canvas shadows camera={{ position: [0, 1.6, 5.6], fov: 40 }} gl={{ preserveDrawingBuffer: true }}>
         <CanvasRegistrar />
+        <CameraPresetHandler controlsRef={orbitControlsRef} />
         <color attach="background" args={['#14171c']} />
-        <ambientLight intensity={0.7} />
-        <directionalLight position={[3, 5, 2]} intensity={1.6} castShadow />
+        <ambientLight intensity={ambientIntensity} />
+        <directionalLight position={[3, 5, 2]} intensity={keyLightIntensity} castShadow />
         <directionalLight position={[-3, 2, -2]} intensity={0.5} />
         <hemisphereLight args={['#8fa8c9', '#1a1c20', 0.6]} />
         {backgroundUrl ? (
@@ -141,9 +237,10 @@ export function Viewport() {
           <>
             <CharacterMesh key={readyVersion} />
             <ContactBlob />
+            <GamepadJointControl />
           </>
         )}
-        <OrbitControls target={[0, 0.8, 0]} enableDamping dampingFactor={0.1} minDistance={1} maxDistance={10} />
+        <OrbitControls ref={orbitControlsRef} target={[0, 0.8, 0]} enableDamping dampingFactor={0.1} minDistance={1} maxDistance={10} />
       </Canvas>
     </div>
   );

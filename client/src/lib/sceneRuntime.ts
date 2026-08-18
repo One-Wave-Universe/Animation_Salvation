@@ -22,6 +22,15 @@ export const sceneRuntime: {
   mode: RenderMode | null;
   canvas: HTMLCanvasElement | null;
   dispose: (() => void) | null;
+  /**
+   * Live joint overrides keyed by bone id (BoneNode.id, not the THREE.Bone's
+   * own .name/.uuid) - the gamepad joint controller writes into this every
+   * frame for whichever bone is selected. TimelineExecutor applies these
+   * after the normal idle/action pose, so manual control composes with
+   * playback instead of needing its own separate render path, and still
+   * gets the same per-frame smoothing everything else does.
+   */
+  manualBoneOverrides: Map<string, THREE.Euler>;
 } = {
   renderObject: null,
   animatable: null,
@@ -29,6 +38,7 @@ export const sceneRuntime: {
   mode: null,
   canvas: null,
   dispose: null,
+  manualBoneOverrides: new Map(),
 };
 
 export function resetSceneRuntime() {
@@ -38,6 +48,7 @@ export function resetSceneRuntime() {
   sceneRuntime.executor = null;
   sceneRuntime.mode = null;
   sceneRuntime.dispose = null;
+  sceneRuntime.manualBoneOverrides.clear();
 }
 
 export function setActiveCharacter(mode: RenderMode, renderObject: THREE.Object3D, animatable: AnimatableRig, dispose: () => void) {
@@ -47,4 +58,8 @@ export function setActiveCharacter(mode: RenderMode, renderObject: THREE.Object3
   sceneRuntime.animatable = animatable;
   sceneRuntime.executor = new TimelineExecutor(animatable);
   sceneRuntime.dispose = dispose;
+}
+
+if (import.meta.env.DEV) {
+  (window as unknown as { __SCENE_RUNTIME__: typeof sceneRuntime }).__SCENE_RUNTIME__ = sceneRuntime;
 }

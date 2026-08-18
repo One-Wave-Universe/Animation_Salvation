@@ -109,6 +109,51 @@ export function buildCapsules(rig: RigDescription, boneIndex: Map<string, number
   return capsules;
 }
 
+/**
+ * Parent/child adjacency between bones, keyed by boneIndex, for skin-weight
+ * blending (skinning.ts): which bones are actually neighbors *in the
+ * skeleton*, independent of how close together they happen to sit in space.
+ * A curled tail can pass within a few centimeters of a leg without the two
+ * being remotely related - restricting weight blending to hierarchy
+ * neighbors (see hopDistances) is what stops the leg from ever tugging on
+ * the tail, no matter how close it swings.
+ */
+export function buildBoneAdjacency(rig: RigDescription, boneIndex: Map<string, number>): Map<number, number[]> {
+  const adjacency = new Map<number, number[]>();
+  const link = (a: number, b: number) => {
+    if (!adjacency.has(a)) adjacency.set(a, []);
+    adjacency.get(a)!.push(b);
+  };
+  for (const desc of rig.bones) {
+    if (!desc.parentId) continue;
+    const childIdx = boneIndex.get(desc.id);
+    const parentIdx = boneIndex.get(desc.parentId);
+    if (childIdx === undefined || parentIdx === undefined) continue;
+    link(childIdx, parentIdx);
+    link(parentIdx, childIdx);
+  }
+  return adjacency;
+}
+
+/** Bones reachable from `from` within `maxHops` hierarchy edges, mapped to their hop count (0 = from itself). */
+export function hopDistances(adjacency: Map<number, number[]>, from: number, maxHops: number): Map<number, number> {
+  const dist = new Map<number, number>([[from, 0]]);
+  let frontier = [from];
+  for (let hop = 1; hop <= maxHops && frontier.length; hop++) {
+    const next: number[] = [];
+    for (const node of frontier) {
+      for (const neighbor of adjacency.get(node) ?? []) {
+        if (!dist.has(neighbor)) {
+          dist.set(neighbor, hop);
+          next.push(neighbor);
+        }
+      }
+    }
+    frontier = next;
+  }
+  return dist;
+}
+
 export function pointToSegmentDistance(p: THREE.Vector3, a: THREE.Vector3, b: THREE.Vector3): number {
   const ab = new THREE.Vector3().subVectors(b, a);
   const len2 = ab.lengthSq();
